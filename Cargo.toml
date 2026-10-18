@@ -7,7 +7,7 @@ default-members = ["src-tauri"]
 version = "1.0.0"
 edition = "2024"
 license = "MIT"
-authors = ["serpoul"]
+authors = ["Jean-Jacques Serpoul <serpoul@gmail.com>"]
 
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }

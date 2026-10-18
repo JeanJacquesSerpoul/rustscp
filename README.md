@@ -157,3 +157,7 @@ frontend/    app.rs, panes.rs (listes et arborescences), queue.rs, dialogs.rs,
 ```
 
 Configuration : `~/.config/rustscp/` (`sites.json`, `settings.json`, `known_hosts`).
+
+## Licence
+
+Distribué sous licence MIT : voir [LICENSE](LICENSE).
