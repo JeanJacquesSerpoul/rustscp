@@ -1,0 +1,4 @@
+# Fichiers lus dans des conteneurs Linux : toujours en LF, même extraits sous Windows
+*.sh text eol=lf
+tests/ftp/vsftpd.conf text eol=lf
+tests/**/Dockerfile text eol=lf
