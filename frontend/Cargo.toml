@@ -1,0 +1,27 @@
+[package]
+name = "rustscp-ui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+rustscp-shared.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+leptos = { version = "0.8.22", features = ["csr"] }
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+serde-wasm-bindgen = "0.6"
+futures = "0.3"
+send_wrapper = "0.6"
+console_error_panic_hook = "0.1"
+
+[dependencies.web-sys]
+version = "0.3"
+features = [
+  "Window", "Document", "Element", "HtmlElement", "HtmlInputElement", "HtmlTextAreaElement",
+  "HtmlSelectElement", "DomRect", "MouseEvent", "KeyboardEvent", "WheelEvent", "FocusEvent",
+  "Event", "EventTarget", "Storage", "ResizeObserver", "ResizeObserverEntry", "CssStyleDeclaration",
+  "ScrollIntoViewOptions", "ScrollLogicalPosition", "Node", "DomTokenList",
+]

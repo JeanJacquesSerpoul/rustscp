@@ -1,0 +1,44 @@
+[package]
+name = "rustscp"
+description = "Client SCP/SFTP graphique pour Linux inspiré de FileZilla, avec authentification clé SSH + TOTP simultanée"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "rustscp_lib"
+crate-type = ["lib"]
+
+[build-dependencies]
+tauri-build = { version = "2.7", features = [] }
+
+[dependencies]
+rustscp-shared.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tauri = { version = "2.12", features = [] }
+tauri-plugin-dialog = "2.8"
+tauri-plugin-clipboard-manager = "2.5"
+tauri-plugin-window-state = "2.5"
+tokio = { version = "1", features = ["full"] }
+russh = "0.64"
+russh-sftp = "3"
+keyring = { version = "3.6", features = ["sync-secret-service", "crypto-rust"] }
+hmac = "0.12"
+sha1 = "0.10"
+data-encoding = "2"
+trash = "5"
+dirs = "6"
+anyhow = "1"
+thiserror = "2"
+log = "0.4"
+chrono = "0.4"
+uuid = { version = "1", features = ["v4"] }
+futures = "0.3"
+bytes = "1"
+libc = "0.2"
+
+[dev-dependencies]
+sha2 = "0.10"
+tempfile = "3"
+rand = "0.9"

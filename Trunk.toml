@@ -1,0 +1,10 @@
+[build]
+target = "frontend/index.html"
+dist = "dist"
+
+[watch]
+ignore = ["./src-tauri", "./tests", "./dist"]
+
+[serve]
+port = 1420
+open = false

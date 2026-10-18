@@ -1,0 +1,38 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "RustSCP",
+  "mainBinaryName": "rustscp",
+  "version": "1.0.0",
+  "identifier": "fr.rustscp.client",
+  "build": {
+    "beforeDevCommand": "trunk serve",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "trunk build --release",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "RustSCP — client SCP/SFTP",
+        "width": 1360,
+        "height": 900,
+        "minWidth": 800,
+        "minHeight": 500,
+        "dragDropEnabled": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self' ipc: http://ipc.localhost; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["deb", "appimage"],
+    "category": "Network",
+    "shortDescription": "Client SCP/SFTP avec clé SSH + TOTP",
+    "longDescription": "Client SCP/SFTP graphique pour Linux inspiré de FileZilla, conçu pour les serveurs qui exigent une clé SSH et un code TOTP en même temps.",
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.png"]
+  }
+}
