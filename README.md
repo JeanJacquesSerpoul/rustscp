@@ -64,8 +64,10 @@ elle commence par `fr`, anglais sinon. Elle peut être forcée dans **Paramètre
 
 Le moteur suit les étapes imposées par le serveur :
 
-1. **Clé publique** : fichier de clé (ed25519, ECDSA, RSA, chiffrée ou non, certificat
-   `*-cert.pub` détecté) et/ou clés de l'agent SSH. Le serveur répond « succès partiel ».
+1. **Clé publique** : fichier de clé (ed25519, ECDSA, RSA, chiffrée ou non, au format
+   OpenSSH, PEM ou PuTTY `.ppk` v2/v3, certificat `*-cert.pub` détecté) et/ou clés de
+   l'agent SSH (ssh-agent ; sous Windows, agent OpenSSH ou Pageant). Le serveur répond
+   « succès partiel ».
 2. **keyboard-interactive** : chaque question du serveur est classée (code TOTP,
    mot de passe, autre) :
    - code TOTP **demandé** dans une fenêtre dédiée, ou

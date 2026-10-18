@@ -572,7 +572,7 @@ pub fn SiteManager(dialog_id: u64, select: Option<String>) -> impl IntoView {
                 <div class="kv">
                     <span>{tr!("Fichier de clé :", "Key file:")}</span>
                     <span class="inline grow">
-                        {text_field(|f| f.key_file.clone(), |f, v| f.key_file = v, "~/.ssh/id_ed25519")}
+                        {text_field(|f| f.key_file.clone(), |f, v| f.key_file = v, tr!("~/.ssh/id_ed25519 ou clé PuTTY .ppk", "~/.ssh/id_ed25519 or PuTTY .ppk key"))}
                         <button type="button" on:click=browse_key>{tr!("Parcourir…", "Browse…")}</button>
                     </span>
                     <span>{tr!("Phrase de passe :", "Passphrase:")}</span>
@@ -580,7 +580,7 @@ pub fn SiteManager(dialog_id: u64, select: Option<String>) -> impl IntoView {
                 </div>
                 <label class="check"><input type="checkbox" prop:checked=move || form.with(|f| f.use_agent)
                     on:change=move |ev| { let on = event_target_checked(&ev); form.update(|f| f.use_agent = on) }/>
-                    {tr!("Utiliser aussi les clés de l'agent SSH (ssh-agent)", "Also use SSH agent keys (ssh-agent)")}</label>
+                    {tr!("Utiliser aussi les clés de l'agent SSH (ssh-agent, Pageant)", "Also use SSH agent keys (ssh-agent, Pageant)")}</label>
             </fieldset>
 
             <fieldset class="group" disabled=move || !pw_on.get()>

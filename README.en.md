@@ -64,8 +64,10 @@ it starts with `fr`, English otherwise. It can be forced in **Settings → Langu
 
 The engine follows the steps required by the server:
 
-1. **Public key**: key file (ed25519, ECDSA, RSA, encrypted or not, `*-cert.pub`
-   certificate detected) and/or SSH agent keys. The server answers "partial success".
+1. **Public key**: key file (ed25519, ECDSA, RSA, encrypted or not, in OpenSSH, PEM or
+   PuTTY `.ppk` v2/v3 format, `*-cert.pub` certificate detected) and/or SSH agent keys
+   (ssh-agent; on Windows, the OpenSSH agent or Pageant). The server answers
+   "partial success".
 2. **keyboard-interactive**: each server prompt is classified (TOTP code, password,
    other):
    - TOTP code **asked** in a dedicated dialog, or

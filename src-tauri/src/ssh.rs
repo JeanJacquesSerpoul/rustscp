@@ -204,9 +204,63 @@ fn set_private(path: &Path) {
     crate::platform::set_mode(path, 0o600);
 }
 
+/// Vrai si le chargement d'une clé (OpenSSH, PEM ou PuTTY .ppk) a échoué faute de
+/// phrase de passe, ou à cause d'une phrase de passe incorrecte.
+pub fn key_needs_passphrase(err: &russh::keys::Error) -> bool {
+    use russh::keys::ssh_key;
+    match err {
+        russh::keys::Error::KeyIsEncrypted => true,
+        // PPK : « private key is encrypted » ou « incorrect MAC » (mauvaise phrase de passe)
+        russh::keys::Error::SshKey(ssh_key::Error::Ppk(e)) => {
+            let msg = e.to_string().to_lowercase();
+            msg.contains("encrypted") || msg.contains("mac")
+        }
+        _ => {
+            let msg = err.to_string().to_lowercase();
+            [
+                "encrypt",
+                "decrypt",
+                "crypto",
+                "passphrase",
+                "password",
+                "cipher",
+                "padding",
+                "mac",
+            ]
+            .iter()
+            .any(|w| msg.contains(w))
+        }
+    }
+}
+
+fn unreadable_key(path: &Path, err: &russh::keys::Error) -> String {
+    use russh::keys::ssh_key;
+    if let russh::keys::Error::SshKey(ssh_key::Error::Ppk(e)) = err {
+        let msg = e.to_string();
+        if msg.contains("version") {
+            return trf!(
+                "Clé PuTTY ({}) au format PPK non pris en charge ({msg}) : enregistrez-la à nouveau avec PuTTYgen (format PPK 2 ou 3)",
+                "PuTTY key ({}) in an unsupported PPK format ({msg}): save it again with PuTTYgen (PPK format 2 or 3)",
+                path.display()
+            );
+        }
+        return trf!(
+            "Clé PuTTY illisible ({}) : {msg}",
+            "Unreadable PuTTY key ({}): {msg}",
+            path.display()
+        );
+    }
+    trf!(
+        "Clé privée illisible ({}) : {err}",
+        "Unreadable private key ({}): {err}",
+        path.display()
+    )
+}
+
 type DynAgent = AgentClient<Box<dyn AgentStream + Send + Unpin + 'static>>;
 
-/// Agent SSH : `SSH_AUTH_SOCK` sur Unix ; agent OpenSSH (tube nommé) puis Pageant sur Windows.
+/// Agent SSH : `SSH_AUTH_SOCK` sur Unix ; sur Windows, agent OpenSSH (tube nommé),
+/// ou Pageant (PuTTY) si celui-ci est absent ou ne détient aucune clé.
 async fn connect_agent() -> std::result::Result<DynAgent, russh::keys::Error> {
     #[cfg(unix)]
     {
@@ -214,11 +268,16 @@ async fn connect_agent() -> std::result::Result<DynAgent, russh::keys::Error> {
     }
     #[cfg(windows)]
     {
-        match AgentClient::connect_named_pipe(r"\\.\pipe\openssh-ssh-agent").await {
+        let openssh = match AgentClient::connect_named_pipe(r"\\.\pipe\openssh-ssh-agent").await {
+            Ok(mut agent) => match agent.request_identities().await {
+                Ok(ids) if !ids.is_empty() => return Ok(agent.dynamic()),
+                _ => Some(agent),
+            },
+            Err(_) => None,
+        };
+        match AgentClient::connect_pageant().await {
             Ok(agent) => Ok(agent.dynamic()),
-            Err(_) => AgentClient::connect_pageant()
-                .await
-                .map(AgentClient::dynamic),
+            Err(e) => openssh.map(AgentClient::dynamic).ok_or(e),
         }
     }
 }
@@ -746,29 +805,10 @@ impl Session {
                         cert,
                     }));
                 }
-                Err(err) => {
-                    let msg = err.to_string().to_lowercase();
-                    let encrypted = matches!(err, russh::keys::Error::KeyIsEncrypted)
-                        || [
-                            "encrypt",
-                            "decrypt",
-                            "crypto",
-                            "passphrase",
-                            "password",
-                            "cipher",
-                            "padding",
-                            "mac",
-                        ]
-                        .iter()
-                        .any(|w| msg.contains(w));
-                    if !encrypted {
-                        return Err(Error::Auth(trf!(
-                            "Clé privée illisible ({}) : {err}",
-                            "Unreadable private key ({}): {err}",
-                            path.display()
-                        )));
-                    }
+                Err(err) if !key_needs_passphrase(&err) => {
+                    return Err(Error::Auth(unreadable_key(&path, &err)));
                 }
+                Err(_) => {}
             }
             let name = path
                 .file_name()

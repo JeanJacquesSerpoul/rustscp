@@ -16,12 +16,13 @@ use rustscp_lib::transfer::{TransferManager, expand_download, expand_upload};
 use rustscp_lib::ui::{BoxFut, Ui};
 use rustscp_shared::{
     AUTH_KEY_OTP, OTP_ASK, OTP_SECRET, PROTO_SCP, PROTO_SFTP, PromptReply, PromptRequest,
-    RemoteItem, SECRET_OTP, Settings, Site, TransferStatus,
+    RemoteItem, SECRET_OTP, SECRET_PASSPHRASE, Settings, Site, TransferStatus,
 };
 use sha2::{Digest, Sha256};
 
 const SECRET: &str = "JBSWY3DPEHPK3PXP";
 const OTP_KEY: &str = "test@127.0.0.1:2222";
+const PPK_PASSPHRASE: &str = "rustscp";
 
 fn key_path() -> String {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -87,13 +88,22 @@ impl Ui for TestUi {
 }
 
 async fn make_session(protocol: &str, otp_mode: &str) -> (Arc<Session>, Arc<TestUi>) {
+    make_session_with(protocol, otp_mode, &key_path(), None).await
+}
+
+async fn make_session_with(
+    protocol: &str,
+    otp_mode: &str,
+    key_file: &str,
+    passphrase: Option<&str>,
+) -> (Arc<Session>, Arc<TestUi>) {
     let site = Site {
         name: "test".into(),
         host: "127.0.0.1".into(),
         port: 2222,
         user: "test".into(),
         auth: AUTH_KEY_OTP.into(),
-        key_file: key_path(),
+        key_file: key_file.into(),
         use_agent: false,
         otp_mode: otp_mode.into(),
         protocol: protocol.into(),
@@ -102,6 +112,9 @@ async fn make_session(protocol: &str, otp_mode: &str) -> (Arc<Session>, Arc<Test
     };
     let secrets = Arc::new(SecretStore::in_memory());
     secrets.set(&site.id, SECRET_OTP, SECRET);
+    if let Some(pass) = passphrase {
+        secrets.set(&site.id, SECRET_PASSPHRASE, pass);
+    }
     let ui = Arc::new(TestUi::default());
     let session = Session::new(site, ui.clone(), secrets, 15);
     session.connect().await.expect("connexion");
@@ -359,7 +372,13 @@ async fn integration() {
         vec![vec!["Verification code: ".to_string()]]
     );
     session.close().await;
-    let _ = PathBuf::new();
+
+    // 6. clé PuTTY (.ppk v3 chiffrée), phrase de passe enregistrée
+    let ppk = fixture("test_key_v3.ppk").to_string_lossy().into_owned();
+    let (session, ui) = make_session_with(PROTO_SFTP, OTP_SECRET, &ppk, Some(PPK_PASSPHRASE)).await;
+    assert!(session.is_connected());
+    assert!(ui.joined().contains("authentification partielle"));
+    session.close().await;
 }
 
 /// Débit SCP / SFTP sur 256 Mio (à lancer en mode release) :
@@ -417,4 +436,25 @@ async fn bench() {
         eprintln!("BENCH {proto} : envoi {up:.0} Mio/s, réception {down:.0} Mio/s");
     }
     session.close().await;
+}
+
+fn fixture(name: &str) -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../tests/server")
+        .join(name)
+}
+
+/// Clés PuTTY (PPK v2 en clair, v3 chiffrée Argon2id) : même clé que `test_key`.
+#[test]
+fn ppk_keys() {
+    let reference = russh::keys::load_secret_key(key_path(), None).unwrap();
+    let v2 = russh::keys::load_secret_key(fixture("test_key_v2.ppk"), None).unwrap();
+    assert_eq!(v2.key_data(), reference.key_data());
+    let v3 =
+        russh::keys::load_secret_key(fixture("test_key_v3.ppk"), Some(PPK_PASSPHRASE)).unwrap();
+    assert_eq!(v3.key_data(), reference.key_data());
+    for pass in [None, Some("mauvaise")] {
+        let err = russh::keys::load_secret_key(fixture("test_key_v3.ppk"), pass).unwrap_err();
+        assert!(rustscp_lib::ssh::key_needs_passphrase(&err), "{err}");
+    }
 }
