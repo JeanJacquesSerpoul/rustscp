@@ -97,19 +97,7 @@ async fn make_session_with(
     key_file: &str,
     passphrase: Option<&str>,
 ) -> (Arc<Session>, Arc<TestUi>) {
-    let site = Site {
-        name: "test".into(),
-        host: "127.0.0.1".into(),
-        port: 2222,
-        user: "test".into(),
-        auth: AUTH_KEY_OTP.into(),
-        key_file: key_file.into(),
-        use_agent: false,
-        otp_mode: otp_mode.into(),
-        protocol: protocol.into(),
-        id: format!("test-{protocol}-{otp_mode}"),
-        ..Default::default()
-    };
+    let site = test_site(protocol, otp_mode, key_file);
     let secrets = Arc::new(SecretStore::in_memory());
     secrets.set(&site.id, SECRET_OTP, SECRET);
     if let Some(pass) = passphrase {
@@ -124,6 +112,39 @@ async fn make_session_with(
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
     (session, ui)
+}
+
+/// Connexion qui doit échouer avant le second facteur ; retourne le message d'erreur.
+async fn connect_error(key_file: &str) -> String {
+    let site = test_site(PROTO_SFTP, OTP_SECRET, key_file);
+    let session = Session::new(
+        site,
+        Arc::new(TestUi::default()),
+        Arc::new(SecretStore::in_memory()),
+        15,
+    );
+    let err = session
+        .connect()
+        .await
+        .expect_err("la connexion doit échouer");
+    session.close().await;
+    err.to_string()
+}
+
+fn test_site(protocol: &str, otp_mode: &str, key_file: &str) -> Site {
+    Site {
+        name: "test".into(),
+        host: "127.0.0.1".into(),
+        port: 2222,
+        user: "test".into(),
+        auth: AUTH_KEY_OTP.into(),
+        key_file: key_file.into(),
+        use_agent: false,
+        otp_mode: otp_mode.into(),
+        protocol: protocol.into(),
+        id: format!("test-{protocol}-{otp_mode}"),
+        ..Default::default()
+    }
 }
 
 async fn wait(mgr: &TransferManager) {
@@ -306,6 +327,13 @@ async fn integration() {
         eprintln!("serveur de test non démarré (tests/server/run.sh) : test ignoré");
         return;
     }
+
+    // 0. clé absente des authorized_keys du serveur, puis aucune clé : refus explicite
+    let other = fixture("other_key").to_string_lossy().into_owned();
+    let err = connect_error(&other).await;
+    assert!(err.contains("authorized_keys"), "{err}");
+    let err = connect_error("").await;
+    assert!(err.contains("aucune n'est disponible"), "{err}");
 
     // 1. clé + TOTP généré automatiquement
     let (session, ui) = make_session(PROTO_SCP, OTP_SECRET).await;
