@@ -1214,11 +1214,10 @@ impl Session {
 
             if has(MethodKind::PublicKey) && auth_uses_key(&site.auth) {
                 return Err(Error::Auth(match keys_offered {
-                    Some(true) => tr!(
-                        "Clé SSH refusée par le serveur : sa clé publique doit figurer dans ~/.ssh/authorized_keys du compte distant (voir le journal pour l'empreinte)",
-                        "SSH key rejected by the server: its public key must be in the remote account's ~/.ssh/authorized_keys (see the log for the fingerprint)"
-                    )
-                    .into(),
+                    Some(true) => trf!(
+                        "Clé SSH refusée par le serveur pour l'utilisateur « {user} » : vérifiez l'identifiant, et que la clé publique figure dans ~/.ssh/authorized_keys de ce compte (voir le journal pour l'empreinte)",
+                        "SSH key rejected by the server for user \"{user}\": check the username, and that the public key is in this account's ~/.ssh/authorized_keys (see the log for the fingerprint)"
+                    ),
                     _ => tr!(
                         "Le serveur exige une clé SSH, mais aucune n'est disponible (fichier de clé ou agent SSH)",
                         "The server requires an SSH key, but none is available (key file or SSH agent)"
