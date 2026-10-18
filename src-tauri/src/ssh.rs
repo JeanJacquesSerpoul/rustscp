@@ -857,7 +857,7 @@ impl Session {
         handle: &mut Handle<ClientHandler>,
         user: &str,
         site: &Site,
-    ) -> Result<Option<russh::client::AuthResult>> {
+    ) -> Result<(Option<russh::client::AuthResult>, bool)> {
         use russh::client::AuthResult;
         let accepted = |r: &AuthResult| match r {
             AuthResult::Success => true,
@@ -882,7 +882,7 @@ impl Session {
                     .authenticate_openssh_cert(user, key.clone(), cert)
                     .await?;
                 if accepted(&r) {
-                    return Ok(Some(r));
+                    return Ok((Some(r), true));
                 }
                 self.log(
                     "response",
@@ -898,7 +898,7 @@ impl Session {
                 .authenticate_publickey(user, PrivateKeyWithHashAlg::new(key, hash))
                 .await?;
             if accepted(&r) {
-                return Ok(Some(r));
+                return Ok((Some(r), true));
             }
             self.log(
                 "response",
@@ -961,7 +961,7 @@ impl Session {
                                 }
                             };
                             match res {
-                                Ok(r) if accepted(&r) => return Ok(Some(r)),
+                                Ok(r) if accepted(&r) => return Ok((Some(r), true)),
                                 Ok(_) => self.log(
                                     "response",
                                     trf!("Clé refusée : {desc}", "Key rejected: {desc}"),
@@ -996,13 +996,13 @@ impl Session {
                 ),
             );
         }
-        Ok(None)
+        Ok((None, any))
     }
 
     async fn authenticate(&self, handle: &mut Handle<ClientHandler>, site: &Site) -> Result<()> {
         use russh::client::AuthResult;
         let user = if site.user.is_empty() {
-            std::env::var("USER").unwrap_or_default()
+            crate::platform::user_name()
         } else {
             site.user.clone()
         };
@@ -1032,6 +1032,8 @@ impl Session {
             AuthResult::Failure { .. } => all(),
         };
         let (mut tried_pk, mut tried_password, mut kbd_attempts, mut step) = (false, 0, 0, 1);
+        // None : clés pas encore essayées ; Some(false) : aucune clé disponible
+        let mut keys_offered = None;
         loop {
             if handle.is_closed() {
                 return Err(Error::Auth(
@@ -1054,7 +1056,9 @@ impl Session {
 
             if has(MethodKind::PublicKey) && !tried_pk && auth_uses_key(&site.auth) {
                 tried_pk = true;
-                match self.try_keys(handle, &user, site).await? {
+                let (res, any) = self.try_keys(handle, &user, site).await?;
+                keys_offered = Some(any);
+                match res {
                     Some(AuthResult::Success) => {
                         self.log(
                             "status",
@@ -1208,6 +1212,20 @@ impl Session {
                 continue;
             }
 
+            if has(MethodKind::PublicKey) && auth_uses_key(&site.auth) {
+                return Err(Error::Auth(match keys_offered {
+                    Some(true) => tr!(
+                        "Clé SSH refusée par le serveur : sa clé publique doit figurer dans ~/.ssh/authorized_keys du compte distant (voir le journal pour l'empreinte)",
+                        "SSH key rejected by the server: its public key must be in the remote account's ~/.ssh/authorized_keys (see the log for the fingerprint)"
+                    )
+                    .into(),
+                    _ => tr!(
+                        "Le serveur exige une clé SSH, mais aucune n'est disponible (fichier de clé ou agent SSH)",
+                        "The server requires an SSH key, but none is available (key file or SSH agent)"
+                    )
+                    .into(),
+                }));
+            }
             return Err(Error::Auth(trf!(
                 "Authentification impossible : méthodes restantes [{}] non satisfaites avec le type d'authentification choisi",
                 "Authentication impossible: remaining methods [{}] cannot be satisfied with the chosen authentication type",
