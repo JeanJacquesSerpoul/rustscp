@@ -283,6 +283,11 @@ async fn transfers_roundtrip(protocol: &str) {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn integration() {
     if !server_up() {
+        // en CI, l'absence du serveur est une erreur et non un test ignoré
+        assert!(
+            std::env::var_os("RUSTSCP_REQUIRE_SERVER").is_none(),
+            "serveur de test absent alors que RUSTSCP_REQUIRE_SERVER est défini"
+        );
         eprintln!("serveur de test non démarré (tests/server/run.sh) : test ignoré");
         return;
     }

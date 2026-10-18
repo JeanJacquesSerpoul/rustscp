@@ -1,0 +1,110 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  check:
+    name: Lint et tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Dépendances système (Tauri / WebKitGTK, Secret Service)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libxdo-dev libssl-dev libayatana-appindicator3-dev \
+            librsvg2-dev libdbus-1-dev pkg-config build-essential
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: trunk
+
+      - name: Formatage
+        run: cargo fmt --all --check
+
+      # generate_context!() de Tauri exige l'interface compilée (dist/)
+      - name: Interface (Leptos → WebAssembly)
+        run: trunk build
+
+      - name: Clippy (cœur, types partagés, passerelle)
+        run: cargo clippy -p rustscp -p rustscp-shared -p rustscp-devbridge --all-targets
+
+      - name: Clippy (interface, wasm32)
+        run: cargo clippy -p rustscp-ui --target wasm32-unknown-unknown
+
+      - name: Serveur SSH de test (clé + TOTP)
+        run: |
+          tests/server/run.sh
+          for i in $(seq 1 30); do
+            if (exec 3<>/dev/tcp/127.0.0.1/2222) 2>/dev/null; then exit 0; fi
+            sleep 1
+          done
+          docker logs wscp-test-sshd
+          exit 1
+
+      - name: Tests (unitaires et intégration)
+        env:
+          RUSTSCP_REQUIRE_SERVER: "1"
+        run: cargo test --workspace
+
+      - name: Journal du serveur de test
+        if: failure()
+        run: docker logs wscp-test-sshd || true
+
+  bundle:
+    name: Paquets (.deb, AppImage)
+    needs: check
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Dépendances système
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libxdo-dev libssl-dev libayatana-appindicator3-dev \
+            librsvg2-dev libdbus-1-dev pkg-config build-essential file
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: trunk,tauri-cli
+
+      - name: Compilation et paquets
+        run: cargo tauri build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rustscp-linux
+          path: |
+            target/release/rustscp
+            target/release/bundle/deb/*.deb
+            target/release/bundle/appimage/*.AppImage
+          if-no-files-found: error

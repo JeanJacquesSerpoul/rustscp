@@ -124,6 +124,11 @@ tests/server/run.sh
 cargo test --workspace
 ```
 
+L'intégration continue GitHub (`.github/workflows/ci.yml`) vérifie le formatage,
+Clippy (natif et wasm32) et lance tous les tests contre ce serveur Docker
+(`RUSTSCP_REQUIRE_SERVER=1` : son absence fait alors échouer le test). Sur une
+étiquette `v*` ou un lancement manuel, elle produit aussi les paquets `.deb` et AppImage.
+
 Débit (mode release) :
 
 ```bash
