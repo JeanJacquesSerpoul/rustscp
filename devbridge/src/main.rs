@@ -80,14 +80,16 @@ async fn dispatch(st: &AppState, cmd: &str, a: Value) -> Result<Value, CmdError>
     match cmd {
         "app_info" => Ok(json!({
             "name": APP_NAME, "version": VERSION,
-            "secrets": { "available": st.secrets.available, "name": st.secrets.backend_name },
+            "secrets": { "available": st.secrets.available, "name": st.secrets.backend_name() },
             "default_key": local::default_key(), "home": local::home(),
-            "user": std::env::var("USER").unwrap_or_default()
+            "user": std::env::var("USER").unwrap_or_default(),
+            "lang": rustscp_shared::lang().code()
         })),
         "settings_get" => Ok(json!(*st.settings.read().unwrap())),
         "settings_set" => {
             let settings: Settings = de(&a, "settings")?;
             config::save_settings(&settings)?;
+            config::apply_language(&settings);
             *st.settings.write().unwrap() = settings;
             st.transfers.ensure_workers();
             ok(())

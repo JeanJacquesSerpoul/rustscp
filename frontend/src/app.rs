@@ -9,8 +9,8 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 use rustscp_shared::util::{human_speed, rbasename, rparent};
 use rustscp_shared::{
-    AUTH_CHOICES, AUTH_INTERACTIVE, Direction, EditChanged, LogLine, PROTO_SCP, PromptEvent,
-    QuickEntry, Settings, Site, SitesFile, TransferFinished, auth_label,
+    AUTH_INTERACTIVE, AUTH_KEY_OTP, Direction, EditChanged, LogLine, PROTO_SCP, PromptEvent,
+    QuickEntry, Settings, Site, SitesFile, TransferFinished, auth_choices, auth_label,
 };
 use serde::Deserialize;
 use serde_json::json;
@@ -25,6 +25,7 @@ use crate::layout::{Axis, Layout, Splitter, layout};
 use crate::panes::{DRAG_ENDED, PaneView, start_local_watch};
 use crate::queue::{QueuePanel, start_polling};
 use crate::state::{AppInfo, ConnState, Ctx, Dialog, DragPayload, MenuItem, MenuState, ctx};
+use rustscp_shared::{tr, trf};
 
 thread_local! {
     static HOVER: RefCell<Option<web_sys::Element>> = const { RefCell::new(None) };
@@ -76,7 +77,9 @@ fn close_current_tab(c: Ctx) {
 fn sites_menu_items(c: Ctx) -> Vec<MenuItem> {
     let groups = act::sites_by_folder(c);
     if groups.iter().all(|(_, v)| v.is_empty()) {
-        return vec![MenuItem::Label("(aucun site enregistré)".into())];
+        return vec![MenuItem::Label(
+            tr!("(aucun site enregistré)", "(no saved site)").into(),
+        )];
     }
     let entry = move |s: Site| {
         MenuItem::action(s.name.clone(), "server", move || {
@@ -109,53 +112,77 @@ fn main_menu(c: Ctx, which: &str) -> Vec<MenuItem> {
         .current()
         .is_some_and(|t| t.site.get_untracked().is_some());
     match which {
-        "Fichier" => vec![
-            MenuItem::action("Gestionnaire de sites", "server", move || {
-                open_site_manager(c)
-            })
+        "file" => vec![
+            MenuItem::action(
+                tr!("Gestionnaire de sites", "Site Manager"),
+                "server",
+                move || open_site_manager(c),
+            )
             .shortcut("Ctrl+S"),
             MenuItem::Sub {
-                label: "Sites".into(),
+                label: tr!("Sites", "Sites").into(),
                 icon: "folder",
                 items: sites_menu_items(c),
             },
-            MenuItem::action("Nouvel onglet", "tab-new", move || {
+            MenuItem::action(tr!("Nouvel onglet", "New tab"), "tab-new", move || {
                 act::new_tab(c);
             })
             .shortcut("Ctrl+T"),
-            MenuItem::action("Fermer l'onglet", "close", move || close_current_tab(c))
-                .shortcut("Ctrl+W"),
+            MenuItem::action(tr!("Fermer l'onglet", "Close tab"), "close", move || {
+                close_current_tab(c)
+            })
+            .shortcut("Ctrl+W"),
             MenuItem::Separator,
-            MenuItem::action("Quitter", "disconnect", move || act::quit(c)).shortcut("Ctrl+Q"),
+            MenuItem::action(tr!("Quitter", "Quit"), "disconnect", move || act::quit(c))
+                .shortcut("Ctrl+Q"),
         ],
-        "Serveur" => vec![
-            MenuItem::action("Reconnecter", "connect", move || reconnect(c))
-                .enabled(has_site)
-                .shortcut("Ctrl+R"),
-            MenuItem::action("Déconnecter", "disconnect", move || disconnect(c))
-                .enabled(has_session)
-                .shortcut("Ctrl+Maj+D"),
-            MenuItem::action("Actualiser", "refresh", move || refresh_all(c)).shortcut("F5"),
+        "server" => vec![
+            MenuItem::action(tr!("Reconnecter", "Reconnect"), "connect", move || {
+                reconnect(c)
+            })
+            .enabled(has_site)
+            .shortcut("Ctrl+R"),
+            MenuItem::action(tr!("Déconnecter", "Disconnect"), "disconnect", move || {
+                disconnect(c)
+            })
+            .enabled(has_session)
+            .shortcut(tr!("Ctrl+Maj+D", "Ctrl+Shift+D")),
+            MenuItem::action(tr!("Actualiser", "Refresh"), "refresh", move || {
+                refresh_all(c)
+            })
+            .shortcut("F5"),
         ],
-        "Transferts" => vec![
-            MenuItem::action("Traiter la file", "play", move || toggle_queue(c))
-                .checked(c.queue.running.get_untracked()),
-            MenuItem::action("Annuler tous les transferts", "stop", move || cancel_all(c)),
+        "transfers" => vec![
+            MenuItem::action(tr!("Traiter la file", "Process queue"), "play", move || {
+                toggle_queue(c)
+            })
+            .checked(c.queue.running.get_untracked()),
+            MenuItem::action(
+                tr!("Annuler tous les transferts", "Cancel all transfers"),
+                "stop",
+                move || cancel_all(c),
+            ),
         ],
-        "Affichage" => vec![
-            MenuItem::action("Fichiers cachés", "eye", move || act::toggle_hidden(c))
-                .checked(c.settings.get_untracked().show_hidden)
-                .shortcut("Ctrl+H"),
+        "view" => vec![
+            MenuItem::action(tr!("Fichiers cachés", "Hidden files"), "eye", move || {
+                act::toggle_hidden(c)
+            })
+            .checked(c.settings.get_untracked().show_hidden)
+            .shortcut("Ctrl+H"),
         ],
-        "Édition" => vec![
-            MenuItem::action("Paramètres", "settings", move || {
+        "edit" => vec![
+            MenuItem::action(tr!("Paramètres", "Settings"), "settings", move || {
                 c.open_dialog(Dialog::Settings);
             })
             .shortcut("Ctrl+,"),
         ],
-        _ => vec![MenuItem::action("À propos", "info", move || {
-            c.open_dialog(Dialog::About);
-        })],
+        _ => vec![MenuItem::action(
+            tr!("À propos", "About"),
+            "info",
+            move || {
+                c.open_dialog(Dialog::About);
+            },
+        )],
     }
 }
 
@@ -179,8 +206,15 @@ fn MenuBar() -> impl IntoView {
     let c = ctx();
     view! {
         <div class="menubar">
-            {["Fichier", "Serveur", "Transferts", "Affichage", "Édition", "Aide"].into_iter().map(|m| view! {
-                <button class="menubar-item" on:mousedown=move |ev| open_menu_below(c, &ev, main_menu(c, m))>{m}</button>
+            {[
+                ("file", tr!("Fichier", "File")),
+                ("server", tr!("Serveur", "Server")),
+                ("transfers", tr!("Transferts", "Transfers")),
+                ("view", tr!("Affichage", "View")),
+                ("edit", tr!("Édition", "Edit")),
+                ("help", tr!("Aide", "Help")),
+            ].into_iter().map(|(m, label)| view! {
+                <button class="menubar-item" on:mousedown=move |ev| open_menu_below(c, &ev, main_menu(c, m))>{label}</button>
             }).collect_view()}
         </div>
     }
@@ -197,25 +231,25 @@ fn Toolbar() -> impl IntoView {
     view! {
         <div class="toolbar">
             <span class="split-btn">
-                <button class="tool" title="Gestionnaire de sites (Ctrl+S)" on:click=move |_| open_site_manager(c)>{icon("server")}</button>
-                <button class="tool drop" title="Sites enregistrés" on:mousedown=move |ev| open_menu_below(c, &ev, sites_menu_items(c))>{icon("chevron-down")}</button>
+                <button class="tool" title=tr!("Gestionnaire de sites (Ctrl+S)", "Site Manager (Ctrl+S)") on:click=move |_| open_site_manager(c)>{icon("server")}</button>
+                <button class="tool drop" title=tr!("Sites enregistrés", "Saved sites") on:mousedown=move |ev| open_menu_below(c, &ev, sites_menu_items(c))>{icon("chevron-down")}</button>
             </span>
-            <button class="tool" title="Nouvel onglet (Ctrl+T)" on:click=move |_| { act::new_tab(c); }>{icon("tab-new")}</button>
+            <button class="tool" title=tr!("Nouvel onglet (Ctrl+T)", "New tab (Ctrl+T)") on:click=move |_| { act::new_tab(c); }>{icon("tab-new")}</button>
             <span class="sep"></span>
-            <button class="tool" title="Actualiser les listes de fichiers (F5)" on:click=move |_| refresh_all(c)>{icon("refresh")}</button>
-            <button class="tool" title="Reconnecter (Ctrl+R)" disabled=move || !has_site() on:click=move |_| reconnect(c)>{icon("connect")}</button>
-            <button class="tool" title="Déconnecter (Ctrl+Maj+D)" disabled=move || !has_session() on:click=move |_| disconnect(c)>{icon("disconnect")}</button>
+            <button class="tool" title=tr!("Actualiser les listes de fichiers (F5)", "Refresh file lists (F5)") on:click=move |_| refresh_all(c)>{icon("refresh")}</button>
+            <button class="tool" title=tr!("Reconnecter (Ctrl+R)", "Reconnect (Ctrl+R)") disabled=move || !has_site() on:click=move |_| reconnect(c)>{icon("connect")}</button>
+            <button class="tool" title=tr!("Déconnecter (Ctrl+Maj+D)", "Disconnect (Ctrl+Shift+D)") disabled=move || !has_session() on:click=move |_| disconnect(c)>{icon("disconnect")}</button>
             <span class="sep"></span>
             <button class="tool" class:toggled=move || !c.queue.running.get()
-                title=move || if c.queue.running.get() { "Mettre en pause la file de transferts" } else { "Reprendre la file de transferts" }
+                title=move || if c.queue.running.get() { tr!("Mettre en pause la file de transferts", "Pause the transfer queue") } else { tr!("Reprendre la file de transferts", "Resume the transfer queue") }
                 on:click=move |_| toggle_queue(c)>
                 {move || if c.queue.running.get() { icon("pause").into_any() } else { icon("play").into_any() }}
             </button>
-            <button class="tool" title="Annuler tous les transferts" on:click=move |_| cancel_all(c)>{icon("stop")}</button>
+            <button class="tool" title=tr!("Annuler tous les transferts", "Cancel all transfers") on:click=move |_| cancel_all(c)>{icon("stop")}</button>
             <span class="sep"></span>
-            <button class="tool" class:toggled=move || c.settings.with(|s| s.show_hidden) title="Afficher les fichiers cachés (Ctrl+H)"
+            <button class="tool" class:toggled=move || c.settings.with(|s| s.show_hidden) title=tr!("Afficher les fichiers cachés (Ctrl+H)", "Show hidden files (Ctrl+H)")
                 on:click=move |_| act::toggle_hidden(c)>{icon("eye")}</button>
-            <button class="tool" title="Paramètres (Ctrl+,)" on:click=move |_| { c.open_dialog(Dialog::Settings); }>{icon("settings")}</button>
+            <button class="tool" title=tr!("Paramètres (Ctrl+,)", "Settings (Ctrl+,)") on:click=move |_| { c.open_dialog(Dialog::Settings); }>{icon("settings")}</button>
             <span class="grow"></span>
             <span class="brand">{logo(20)}<span>"RustSCP"</span></span>
         </div>
@@ -228,7 +262,7 @@ fn QuickConnect() -> impl IntoView {
     let host = RwSignal::new(String::new());
     let user = RwSignal::new(String::new());
     let port = RwSignal::new(22u16);
-    let auth = RwSignal::new(AUTH_CHOICES[0].0.to_string());
+    let auth = RwSignal::new(AUTH_KEY_OTP.to_string());
     let key = RwSignal::new(String::new());
     let host_input = NodeRef::<html::Input>::new();
     Effect::new(move |_| {
@@ -312,7 +346,7 @@ fn QuickConnect() -> impl IntoView {
         user.set(h.user);
         port.set(h.port);
         auth.set(if h.auth.is_empty() {
-            AUTH_CHOICES[0].0.to_string()
+            AUTH_KEY_OTP.to_string()
         } else {
             h.auth
         });
@@ -339,11 +373,13 @@ fn QuickConnect() -> impl IntoView {
             })
             .collect();
         if items.is_empty() {
-            items.push(MenuItem::Label("(aucune connexion récente)".into()));
+            items.push(MenuItem::Label(
+                tr!("(aucune connexion récente)", "(no recent connection)").into(),
+            ));
         } else {
             items.push(MenuItem::Separator);
             items.push(MenuItem::action(
-                "Effacer l'historique",
+                tr!("Effacer l'historique", "Clear history"),
                 "trash",
                 move || {
                     c.settings.update(|s| s.quickconnect_history.clear());
@@ -370,25 +406,25 @@ fn QuickConnect() -> impl IntoView {
     };
     view! {
         <div class="quickconnect">
-            <label>"Hôte :"</label>
-            <input type="text" class="qc-host" placeholder="utilisateur@hôte:port" spellcheck="false" node_ref=host_input
+            <label>{tr!("Hôte :", "Host:")}</label>
+            <input type="text" class="qc-host" placeholder=tr!("utilisateur@hôte:port", "user@host:port") spellcheck="false" node_ref=host_input
                 prop:value=host on:input=move |ev| host.set(event_target_value(&ev)) on:keydown=enter/>
-            <label>"Identifiant :"</label>
+            <label>{tr!("Identifiant :", "Username:")}</label>
             <input type="text" class="qc-user" placeholder=move || c.info.with(|i| i.user.clone()) spellcheck="false"
                 prop:value=user on:input=move |ev| user.set(event_target_value(&ev)) on:keydown=enter/>
-            <label>"Port :"</label>
+            <label>{tr!("Port :", "Port:")}</label>
             <input type="number" class="qc-port" min="1" max="65535" prop:value=move || port.get().to_string()
                 on:input=move |ev| { if let Ok(p) = event_target_value(&ev).parse::<u16>() { port.set(p.max(1)) } }/>
-            <label>"Auth. :"</label>
+            <label>{tr!("Auth. :", "Auth.:")}</label>
             <select on:change=move |ev| auth.set(event_target_value(&ev))>
-                {AUTH_CHOICES.iter().map(|(k, l)| view! { <option value=*k prop:selected=move || auth.get() == *k>{*l}</option> }).collect_view()}
+                {auth_choices().into_iter().map(|(k, l)| view! { <option value=k prop:selected=move || auth.get() == k>{l}</option> }).collect_view()}
             </select>
-            <label>"Clé :"</label>
+            <label>{tr!("Clé :", "Key:")}</label>
             <input type="text" class="qc-key" placeholder="~/.ssh/id_ed25519" spellcheck="false" disabled=move || !key_enabled()
                 prop:value=key on:input=move |ev| key.set(event_target_value(&ev)) on:keydown=enter/>
-            <button class="icon-btn" title="Choisir une clé privée" disabled=move || !key_enabled() on:click=browse>"…"</button>
-            <button class="primary qc-go" on:click=move |_| connect()>{icon("connect")}"Connexion rapide"</button>
-            <button class="icon-btn" title="Connexions récentes" on:mousedown=history>{icon("chevron-down")}</button>
+            <button class="icon-btn" title=tr!("Choisir une clé privée", "Choose a private key") disabled=move || !key_enabled() on:click=browse>"…"</button>
+            <button class="primary qc-go" on:click=move |_| connect()>{icon("connect")}{tr!("Connexion rapide", "Quickconnect")}</button>
+            <button class="icon-btn" title=tr!("Connexions récentes", "Recent connections") on:mousedown=history>{icon("chevron-down")}</button>
         </div>
     }
 }
@@ -407,11 +443,11 @@ fn LogPane() -> impl IntoView {
         }
     });
     let label = |level: &str| match level {
-        "command" => "Commande",
-        "response" => "Réponse",
-        "error" => "Erreur",
+        "command" => tr!("Commande", "Command"),
+        "response" => tr!("Réponse", "Response"),
+        "error" => tr!("Erreur", "Error"),
         "trace" => "Trace",
-        _ => "Statut",
+        _ => tr!("Statut", "Status"),
     };
     view! {
         <div class="log selectable" node_ref=node
@@ -422,11 +458,11 @@ fn LogPane() -> impl IntoView {
             on:contextmenu=move |ev| {
                 ev.prevent_default();
                 let items = vec![
-                    MenuItem::action("Copier le journal", "copy", move || {
+                    MenuItem::action(tr!("Copier le journal", "Copy log"), "copy", move || {
                         let text = c.logs.with_untracked(|l| l.iter().map(|e| format!("{}  {:<9} {}", e.line.time, label(&e.line.level), e.line.message)).collect::<Vec<_>>().join("\n"));
                         act::copy_text(text);
                     }),
-                    MenuItem::action("Effacer le journal", "trash", move || c.logs.set(Vec::new())),
+                    MenuItem::action(tr!("Effacer le journal", "Clear log"), "trash", move || c.logs.set(Vec::new())),
                 ];
                 c.menu.set(Some(MenuState { x: ev.client_x() as f64, y: ev.client_y() as f64, items }));
             }>
@@ -463,13 +499,13 @@ fn TabsBar() -> impl IntoView {
                             ConnState::Lost => "dot lost", ConnState::Idle => "dot",
                         }></span>
                         <span class="tab-title">{move || t.title()}</span>
-                        <button class="tab-close" title="Fermer l'onglet (Ctrl+W)"
+                        <button class="tab-close" title=tr!("Fermer l'onglet (Ctrl+W)", "Close tab (Ctrl+W)")
                             on:mousedown=|ev| ev.stop_propagation()
                             on:click=move |_| act::close_tab(c, id)>{icon("close")}</button>
                     </div>
                 }
             }/>
-            <button class="icon-btn new-tab" title="Nouvel onglet (Ctrl+T)" on:click=move |_| { act::new_tab(c); }>{icon("plus")}</button>
+            <button class="icon-btn new-tab" title=tr!("Nouvel onglet (Ctrl+T)", "New tab (Ctrl+T)") on:click=move |_| { act::new_tab(c); }>{icon("plus")}</button>
         </div>
     }
 }
@@ -509,19 +545,27 @@ fn TabContent() -> impl IntoView {
 fn StatusBar() -> impl IntoView {
     let c = ctx();
     let conn = move || match c.current_tracked() {
-        None => "Non connecté".to_string(),
+        None => tr!("Non connecté", "Not connected").to_string(),
         Some(t) => match t.site.get() {
-            None => "Non connecté".into(),
+            None => tr!("Non connecté", "Not connected").into(),
             Some(site) => match t.conn.get() {
-                ConnState::Connecting => format!("Connexion à {}…", site.label()),
+                ConnState::Connecting => trf!("Connexion à {}…", "Connecting to {}…", site.label()),
                 ConnState::Connected => {
                     let mut proto = site.protocol.to_uppercase();
                     if site.protocol == PROTO_SCP && t.shell_ok.get() == Some(false) {
-                        proto = "SFTP (repli : SCP indisponible)".into();
+                        proto = tr!(
+                            "SFTP (repli : SCP indisponible)",
+                            "SFTP (fallback: SCP unavailable)"
+                        )
+                        .into();
                     }
-                    format!("Connecté à {} — {proto}", site.label())
+                    trf!(
+                        "Connecté à {} — {proto}",
+                        "Connected to {} — {proto}",
+                        site.label()
+                    )
                 }
-                _ => format!("Déconnecté de {}", site.label()),
+                _ => trf!("Déconnecté de {}", "Disconnected from {}", site.label()),
             },
         },
     };
@@ -529,13 +573,18 @@ fn StatusBar() -> impl IntoView {
         let s = c.queue.stats.get();
         let mut parts = Vec::new();
         if s.queued > 0 || s.active > 0 {
-            parts.push(format!("{} actif(s), {} en attente", s.active, s.queued));
+            parts.push(trf!(
+                "{} actif(s), {} en attente",
+                "{} active, {} queued",
+                s.active,
+                s.queued
+            ));
         }
         if s.speed > 0.0 {
             parts.push(human_speed(s.speed));
         }
         if !c.queue.running.get() {
-            parts.push("file en pause".into());
+            parts.push(tr!("file en pause", "queue paused").into());
         }
         parts.join("   |   ")
     };
@@ -740,7 +789,10 @@ fn os_drop(c: Ctx, ev: OsDrop) {
             if let Some(tab) = c.current().filter(|t| t.connected()) {
                 c.log(
                     "status",
-                    "Déposez les fichiers sur le panneau distant pour les envoyer.",
+                    tr!(
+                        "Déposez les fichiers sur le panneau distant pour les envoyer.",
+                        "Drop files onto the remote pane to upload them."
+                    ),
                 );
                 let _ = tab;
             }
@@ -834,7 +886,12 @@ pub fn App() -> impl IntoView {
         let backend = info.secrets.map(|s| s.name).unwrap_or_default();
         c.log(
             "status",
-            format!("{} {} prêt. Secrets : {backend}", info.name, info.version),
+            trf!(
+                "{} {} prêt. Secrets : {backend}",
+                "{} {} ready. Secrets: {backend}",
+                info.name,
+                info.version
+            ),
         );
     });
 
@@ -864,12 +921,13 @@ pub fn App() -> impl IntoView {
             return;
         }
         spawn_local(async move {
-            let text = format!(
+            let text = trf!(
                 "Le fichier {} a été modifié.\n\nRenvoyer sur le serveur ?\n{}",
+                "The file {} has been modified.\n\nUpload it to the server?\n{}",
                 rbasename(&ev.remote),
                 ev.remote
             );
-            if confirm("Fichier modifié", &text).await {
+            if confirm(tr!("Fichier modifié", "File modified"), &text).await {
                 fire(
                     "reupload",
                     json!({ "id": ev.session_id, "local": ev.local, "remote": ev.remote }),

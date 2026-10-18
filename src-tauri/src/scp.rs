@@ -15,6 +15,7 @@ use russh::{Channel, ChannelMsg};
 
 use crate::error::{Error, Result};
 use crate::ssh::shell_quote;
+use rustscp_shared::{tr, trf};
 
 pub const CHUNK: usize = 256 * 1024;
 
@@ -51,8 +52,13 @@ impl ChanIo {
                 Some(ChannelMsg::Eof) | Some(ChannelMsg::Close) | None => self.eof = true,
                 Some(ChannelMsg::Failure) => {
                     self.eof = true;
-                    self.stderr
-                        .extend_from_slice(b"le serveur refuse l'execution de commandes");
+                    self.stderr.extend_from_slice(
+                        tr!(
+                            "le serveur refuse l'exécution de commandes",
+                            "the server refuses to run commands"
+                        )
+                        .as_bytes(),
+                    );
                 }
                 Some(_) => {}
             }
@@ -89,7 +95,7 @@ impl ChanIo {
             None => {
                 let err = self.stderr_text();
                 Err(Error::Remote(if err.is_empty() {
-                    "Connexion SCP fermée par le serveur (scp est-il installé sur le serveur ?)"
+                    tr!("Connexion SCP fermée par le serveur (scp est-il installé sur le serveur ?)", "SCP connection closed by the server (is scp installed on the server?)")
                         .into()
                 } else {
                     err
@@ -99,7 +105,7 @@ impl ChanIo {
             Some(_) => {
                 let msg = self.read_line().await;
                 Err(Error::Remote(if msg.is_empty() {
-                    "Erreur SCP distante".into()
+                    tr!("Erreur SCP distante", "Remote SCP error").into()
                 } else {
                     msg
                 }))
@@ -135,7 +141,7 @@ impl ChanIo {
             Some(rc) if rc != 0 => {
                 let err = self.stderr_text();
                 Err(Error::Remote(if err.is_empty() {
-                    format!("scp a retourné le code {rc}")
+                    trf!("scp a retourné le code {rc}", "scp returned code {rc}")
                 } else {
                     err
                 }))
@@ -189,7 +195,11 @@ pub async fn upload(
         let n = fh.read(&mut buf[..want])?;
         if n == 0 {
             return Err(Error::Io(
-                "Le fichier local a été tronqué pendant l'envoi".into(),
+                tr!(
+                    "Le fichier local a été tronqué pendant l'envoi",
+                    "The local file was truncated during upload"
+                )
+                .into(),
             ));
         }
         io.send(&buf[..n]).await?;
@@ -249,7 +259,11 @@ async fn download_inner(
         let Some(head) = io.read_byte().await else {
             let err = io.stderr_text();
             return Err(Error::Remote(if err.is_empty() {
-                "Connexion SCP fermée par le serveur".into()
+                tr!(
+                    "Connexion SCP fermée par le serveur",
+                    "SCP connection closed by the server"
+                )
+                .into()
             } else {
                 err
             }));
@@ -257,7 +271,7 @@ async fn download_inner(
         if head == 1 || head == 2 {
             let msg = io.read_line().await;
             return Err(Error::Remote(if msg.is_empty() {
-                "Erreur SCP distante".into()
+                tr!("Erreur SCP distante", "Remote SCP error").into()
             } else {
                 msg
             }));
@@ -274,16 +288,23 @@ async fn download_inner(
             b'C' => {
                 let mut it = line.splitn(3, ' ');
                 let mode = u32::from_str_radix(it.next().unwrap_or("644"), 8).unwrap_or(0o644);
-                let size: u64 = it
-                    .next()
-                    .and_then(|s| s.parse().ok())
-                    .ok_or_else(|| Error::Remote(format!("Réponse SCP invalide : C{line}")))?;
+                let size: u64 = it.next().and_then(|s| s.parse().ok()).ok_or_else(|| {
+                    Error::Remote(trf!(
+                        "Réponse SCP invalide : C{line}",
+                        "Invalid SCP response: C{line}"
+                    ))
+                })?;
                 break (mode, size);
             }
-            b'D' => return Err(Error::Remote("La source est un dossier".into())),
+            b'D' => {
+                return Err(Error::Remote(
+                    tr!("La source est un dossier", "The source is a directory").into(),
+                ));
+            }
             other => {
-                return Err(Error::Remote(format!(
+                return Err(Error::Remote(trf!(
                     "Réponse SCP inattendue : {:?}{line}",
+                    "Unexpected SCP response: {:?}{line}",
                     other as char
                 )));
             }
@@ -299,7 +320,11 @@ async fn download_inner(
         }
         if !io.fill().await {
             return Err(Error::Remote(
-                "Connexion interrompue pendant le téléchargement".into(),
+                tr!(
+                    "Connexion interrompue pendant le téléchargement",
+                    "Connection interrupted during download"
+                )
+                .into(),
             ));
         }
         let take = (io.buf.len() as u64).min(remaining) as usize;

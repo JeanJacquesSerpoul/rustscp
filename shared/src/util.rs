@@ -1,11 +1,16 @@
 //! Petites fonctions utilitaires partagées.
 
-const UNITS: [&str; 6] = ["o", "Kio", "Mio", "Gio", "Tio", "Pio"];
+use crate::i18n::is_fr;
+use crate::{tr, trf};
+
+const UNITS_FR: [&str; 6] = ["o", "Kio", "Mio", "Gio", "Tio", "Pio"];
+const UNITS_EN: [&str; 6] = ["B", "KiB", "MiB", "GiB", "TiB", "PiB"];
 
 pub fn human_size(n: u64) -> String {
+    let units = if is_fr() { UNITS_FR } else { UNITS_EN };
     let mut v = n as f64;
-    for (i, unit) in UNITS.iter().enumerate() {
-        if v < 1024.0 || i == UNITS.len() - 1 {
+    for (i, unit) in units.iter().enumerate() {
+        if v < 1024.0 || i == units.len() - 1 {
             return if i == 0 {
                 format!("{n} {unit}")
             } else {
@@ -40,13 +45,14 @@ pub fn human_duration(seconds: Option<f64>) -> String {
     }
 }
 
-/// Entier avec séparateur de milliers (espace), à la française.
+/// Entier avec séparateur de milliers (espace en français, virgule en anglais).
 pub fn fmt_int(n: u64) -> String {
+    let sep = if is_fr() { ' ' } else { ',' };
     let s = n.to_string();
     let mut out = String::with_capacity(s.len() + s.len() / 3);
     for (i, c) in s.chars().enumerate() {
         if i > 0 && (s.len() - i).is_multiple_of(3) {
-            out.push(' ');
+            out.push(sep);
         }
         out.push(c);
     }
@@ -321,76 +327,77 @@ pub fn name_matches(filter_lower: &str, name: &str) -> bool {
 /// Description du type de fichier d'après l'extension.
 pub fn file_type_for(name: &str) -> String {
     let ext = extension(name);
-    let desc = match ext.as_str() {
-        "" => return "Fichier".into(),
-        "txt" | "text" => "Document texte",
-        "md" | "markdown" => "Document Markdown",
-        "log" => "Journal",
-        "conf" | "cfg" | "ini" | "toml" | "properties" => "Fichier de configuration",
-        "json" => "Document JSON",
-        "yaml" | "yml" => "Document YAML",
-        "xml" => "Document XML",
-        "csv" => "Document CSV",
-        "html" | "htm" => "Page web HTML",
-        "css" => "Feuille de style CSS",
-        "js" | "mjs" => "Script JavaScript",
-        "ts" => "Script TypeScript",
-        "py" => "Script Python",
-        "rs" => "Code source Rust",
-        "c" => "Code source C",
-        "h" | "hpp" => "En-tête C/C++",
-        "cpp" | "cc" | "cxx" => "Code source C++",
-        "java" => "Code source Java",
-        "go" => "Code source Go",
-        "rb" => "Script Ruby",
-        "php" => "Script PHP",
-        "pl" => "Script Perl",
-        "sh" | "bash" | "zsh" => "Script shell",
-        "sql" => "Script SQL",
-        "pdf" => "Document PDF",
-        "doc" | "docx" | "odt" | "rtf" => "Document texte formaté",
-        "xls" | "xlsx" | "ods" => "Feuille de calcul",
-        "ppt" | "pptx" | "odp" => "Présentation",
-        "png" => "Image PNG",
-        "jpg" | "jpeg" => "Image JPEG",
-        "gif" => "Image GIF",
-        "svg" => "Image SVG",
-        "webp" => "Image WebP",
-        "bmp" => "Image BMP",
-        "ico" => "Icône",
-        "tif" | "tiff" => "Image TIFF",
-        "mp3" => "Audio MP3",
-        "ogg" | "oga" | "opus" => "Audio Ogg",
-        "flac" => "Audio FLAC",
-        "wav" => "Audio WAV",
-        "mp4" | "m4v" => "Vidéo MP4",
-        "mkv" => "Vidéo Matroska",
-        "avi" => "Vidéo AVI",
-        "webm" => "Vidéo WebM",
-        "mov" => "Vidéo QuickTime",
-        "zip" => "Archive ZIP",
-        "tar" => "Archive tar",
-        "gz" | "tgz" => "Archive gzip",
-        "bz2" | "tbz2" => "Archive bzip2",
-        "xz" | "txz" => "Archive XZ",
-        "zst" => "Archive Zstandard",
-        "7z" => "Archive 7-Zip",
-        "rar" => "Archive RAR",
-        "deb" => "Paquet Debian",
-        "rpm" => "Paquet RPM",
-        "iso" => "Image disque",
-        "img" | "qcow2" | "vmdk" => "Image disque",
-        "exe" | "msi" => "Exécutable Windows",
-        "so" => "Bibliothèque partagée",
-        "o" | "a" => "Fichier objet",
-        "pem" | "crt" | "cer" | "key" | "pub" => "Clé ou certificat",
-        "bak" | "old" | "orig" => "Copie de sauvegarde",
-        "tmp" | "swp" => "Fichier temporaire",
-        "db" | "sqlite" | "sqlite3" => "Base de données",
-        "ttf" | "otf" | "woff" | "woff2" => "Police de caractères",
-        _ => return format!("Fichier {}", ext.to_uppercase()),
+    let (fr, en) = match ext.as_str() {
+        "" => return tr!("Fichier", "File").into(),
+        "txt" | "text" => ("Document texte", "Text document"),
+        "md" | "markdown" => ("Document Markdown", "Markdown document"),
+        "log" => ("Journal", "Log file"),
+        "conf" | "cfg" | "ini" | "toml" | "properties" => {
+            ("Fichier de configuration", "Configuration file")
+        }
+        "json" => ("Document JSON", "JSON document"),
+        "yaml" | "yml" => ("Document YAML", "YAML document"),
+        "xml" => ("Document XML", "XML document"),
+        "csv" => ("Document CSV", "CSV document"),
+        "html" | "htm" => ("Page web HTML", "HTML web page"),
+        "css" => ("Feuille de style CSS", "CSS stylesheet"),
+        "js" | "mjs" => ("Script JavaScript", "JavaScript script"),
+        "ts" => ("Script TypeScript", "TypeScript script"),
+        "py" => ("Script Python", "Python script"),
+        "rs" => ("Code source Rust", "Rust source code"),
+        "c" => ("Code source C", "C source code"),
+        "h" | "hpp" => ("En-tête C/C++", "C/C++ header"),
+        "cpp" | "cc" | "cxx" => ("Code source C++", "C++ source code"),
+        "java" => ("Code source Java", "Java source code"),
+        "go" => ("Code source Go", "Go source code"),
+        "rb" => ("Script Ruby", "Ruby script"),
+        "php" => ("Script PHP", "PHP script"),
+        "pl" => ("Script Perl", "Perl script"),
+        "sh" | "bash" | "zsh" => ("Script shell", "Shell script"),
+        "sql" => ("Script SQL", "SQL script"),
+        "pdf" => ("Document PDF", "PDF document"),
+        "doc" | "docx" | "odt" | "rtf" => ("Document texte formaté", "Word processor document"),
+        "xls" | "xlsx" | "ods" => ("Feuille de calcul", "Spreadsheet"),
+        "ppt" | "pptx" | "odp" => ("Présentation", "Presentation"),
+        "png" => ("Image PNG", "PNG image"),
+        "jpg" | "jpeg" => ("Image JPEG", "JPEG image"),
+        "gif" => ("Image GIF", "GIF image"),
+        "svg" => ("Image SVG", "SVG image"),
+        "webp" => ("Image WebP", "WebP image"),
+        "bmp" => ("Image BMP", "BMP image"),
+        "ico" => ("Icône", "Icon"),
+        "tif" | "tiff" => ("Image TIFF", "TIFF image"),
+        "mp3" => ("Audio MP3", "MP3 audio"),
+        "ogg" | "oga" | "opus" => ("Audio Ogg", "Ogg audio"),
+        "flac" => ("Audio FLAC", "FLAC audio"),
+        "wav" => ("Audio WAV", "WAV audio"),
+        "mp4" | "m4v" => ("Vidéo MP4", "MP4 video"),
+        "mkv" => ("Vidéo Matroska", "Matroska video"),
+        "avi" => ("Vidéo AVI", "AVI video"),
+        "webm" => ("Vidéo WebM", "WebM video"),
+        "mov" => ("Vidéo QuickTime", "QuickTime video"),
+        "zip" => ("Archive ZIP", "ZIP archive"),
+        "tar" => ("Archive tar", "tar archive"),
+        "gz" | "tgz" => ("Archive gzip", "gzip archive"),
+        "bz2" | "tbz2" => ("Archive bzip2", "bzip2 archive"),
+        "xz" | "txz" => ("Archive XZ", "XZ archive"),
+        "zst" => ("Archive Zstandard", "Zstandard archive"),
+        "7z" => ("Archive 7-Zip", "7-Zip archive"),
+        "rar" => ("Archive RAR", "RAR archive"),
+        "deb" => ("Paquet Debian", "Debian package"),
+        "rpm" => ("Paquet RPM", "RPM package"),
+        "iso" | "img" | "qcow2" | "vmdk" => ("Image disque", "Disk image"),
+        "exe" | "msi" => ("Exécutable Windows", "Windows executable"),
+        "so" => ("Bibliothèque partagée", "Shared library"),
+        "o" | "a" => ("Fichier objet", "Object file"),
+        "pem" | "crt" | "cer" | "key" | "pub" => ("Clé ou certificat", "Key or certificate"),
+        "bak" | "old" | "orig" => ("Copie de sauvegarde", "Backup copy"),
+        "tmp" | "swp" => ("Fichier temporaire", "Temporary file"),
+        "db" | "sqlite" | "sqlite3" => ("Base de données", "Database"),
+        "ttf" | "otf" | "woff" | "woff2" => ("Police de caractères", "Font"),
+        _ => return trf!("Fichier {}", "{} file", ext.to_uppercase()),
     };
-    desc.into()
+    crate::i18n::pick(fr, en).into()
 }
 
 /// Catégorie d'icône d'après l'extension.
@@ -417,12 +424,19 @@ mod tests {
 
     #[test]
     fn sizes() {
+        let _g = crate::i18n::TEST_LOCK.lock().unwrap();
+        crate::i18n::set_lang(crate::i18n::Lang::Fr);
         assert_eq!(human_size(0), "0 o");
         assert_eq!(human_size(1023), "1023 o");
         assert_eq!(human_size(1536), "1.5 Kio");
         assert_eq!(human_size(5 * 1024 * 1024), "5.0 Mio");
         assert_eq!(fmt_int(1234567), "1 234 567");
         assert_eq!(fmt_int(12), "12");
+        crate::i18n::set_lang(crate::i18n::Lang::En);
+        assert_eq!(human_size(1536), "1.5 KiB");
+        assert_eq!(fmt_int(1234567), "1,234,567");
+        assert_eq!(file_type_for("a.png"), "PNG image");
+        assert_eq!(file_type_for("a.xyz"), "XYZ file");
     }
 
     #[test]

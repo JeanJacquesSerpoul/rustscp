@@ -37,6 +37,7 @@ use crate::sftp::Sftp;
 use crate::sites::SecretStore;
 use crate::totp;
 use crate::ui::Ui;
+use rustscp_shared::{tr, trf};
 
 /// Fenêtre SSH par canal : de grandes fenêtres = débit élevé sur les liaisons à latence.
 pub const WINDOW_SIZE: u32 = 16 * 1024 * 1024;
@@ -125,14 +126,22 @@ impl HostCheck {
                 ),
                 Err(err) => self.ui.log(
                     "error",
-                    format!("known_hosts illisible ({}) : {err}", path.display()),
+                    trf!(
+                        "known_hosts illisible ({}) : {err}",
+                        "Unreadable known_hosts ({}): {err}",
+                        path.display()
+                    ),
                 ),
             }
         }
         if same_alg.iter().any(|k| k.key_data() == key.key_data()) {
             self.ui.log(
                 "status",
-                format!("Clé d'hôte reconnue ({} {fp})", alg.as_str()),
+                trf!(
+                    "Clé d'hôte reconnue ({} {fp})",
+                    "Host key recognized ({} {fp})",
+                    alg.as_str()
+                ),
             );
             self.verified.store(true, Ordering::SeqCst);
             return true;
@@ -164,12 +173,19 @@ impl HostCheck {
                             set_private(&own);
                             self.ui.log(
                                 "status",
-                                format!("Clé d'hôte enregistrée dans {}", own.display()),
+                                trf!(
+                                    "Clé d'hôte enregistrée dans {}",
+                                    "Host key saved to {}",
+                                    own.display()
+                                ),
                             );
                         }
                         Err(err) => self.ui.log(
                             "error",
-                            format!("Impossible d'enregistrer la clé d'hôte : {err}"),
+                            trf!(
+                                "Impossible d'enregistrer la clé d'hôte : {err}",
+                                "Unable to save the host key: {err}"
+                            ),
                         ),
                     }
                 }
@@ -252,7 +268,11 @@ impl Conn {
                     ChannelMsg::ExitStatus { exit_status } => code = Some(exit_status as i32),
                     ChannelMsg::Failure => {
                         return Err(Error::Remote(
-                            "le serveur refuse l'exécution de commandes".into(),
+                            tr!(
+                                "le serveur refuse l'exécution de commandes",
+                                "the server refuses to run commands"
+                            )
+                            .into(),
                         ));
                     }
                     ChannelMsg::Close => break,
@@ -263,7 +283,12 @@ impl Conn {
         };
         let res = tokio::time::timeout(timeout, run).await;
         let _ = chan.close().await;
-        res.map_err(|_| Error::Remote(format!("délai dépassé pour la commande « {command} »")))?
+        res.map_err(|_| {
+            Error::Remote(trf!(
+                "délai dépassé pour la commande « {command} »",
+                "timeout for command \"{command}\""
+            ))
+        })?
     }
 }
 
@@ -365,18 +390,24 @@ impl Session {
         }
         let _guard = self.connect_lock.lock().await;
         if self.closing.load(Ordering::SeqCst) {
-            return Err(Error::Connect("Session fermée".into()));
+            return Err(Error::Connect(
+                tr!("Session fermée", "Session closed").into(),
+            ));
         }
         if let Some(c) = self.current().filter(|c| !c.is_closed()) {
             return Ok(c);
         }
         self.log(
             "status",
-            format!("Connexion perdue avec {}, reconnexion…", self.label()),
+            trf!(
+                "Connexion perdue avec {}, reconnexion…",
+                "Connection to {} lost, reconnecting…",
+                self.label()
+            ),
         );
         self.connect_locked().await?;
         self.current()
-            .ok_or_else(|| Error::Connect("Connexion impossible".into()))
+            .ok_or_else(|| Error::Connect(tr!("Connexion impossible", "Unable to connect").into()))
     }
 
     async fn connect_locked(&self) -> Result<()> {
@@ -384,7 +415,12 @@ impl Session {
         let site = self.site();
         self.log(
             "status",
-            format!("Résolution de {}:{}…", site.host, site.port),
+            trf!(
+                "Résolution de {}:{}…",
+                "Resolving {}:{}…",
+                site.host,
+                site.port
+            ),
         );
         let tcp = tokio::time::timeout(
             self.timeout,
@@ -392,15 +428,19 @@ impl Session {
         )
         .await
         .map_err(|_| {
-            Error::Connect(format!(
+            Error::Connect(trf!(
                 "Impossible de joindre {}:{} : délai dépassé",
-                site.host, site.port
+                "Unable to reach {}:{}: timed out",
+                site.host,
+                site.port
             ))
         })?
         .map_err(|e| {
-            Error::Connect(format!(
+            Error::Connect(trf!(
                 "Impossible de joindre {}:{} : {e}",
-                site.host, site.port
+                "Unable to reach {}:{}: {e}",
+                site.host,
+                site.port
             ))
         })?;
         let _ = tcp.set_nodelay(true);
@@ -408,7 +448,13 @@ impl Session {
             .peer_addr()
             .map(|a| a.ip().to_string())
             .unwrap_or_default();
-        self.log("status", format!("Connecté à {peer}, négociation SSH…"));
+        self.log(
+            "status",
+            trf!(
+                "Connecté à {peer}, négociation SSH…",
+                "Connected to {peer}, SSH negotiation…"
+            ),
+        );
 
         let preferred = russh::Preferred {
             compression: if site.compression {
@@ -454,18 +500,24 @@ impl Session {
                     if check.prompting.load(Ordering::SeqCst) || check.verified.load(Ordering::SeqCst) {
                         continue;
                     }
-                    return Err(Error::Connect("Échec de la négociation SSH : délai dépassé".into()));
+                    return Err(Error::Connect(tr!("Échec de la négociation SSH : délai dépassé", "SSH negotiation failed: timed out").into()));
                 }
             }
         }
         .map_err(|e| {
             if check.rejected.load(Ordering::SeqCst) {
-                Error::Auth("Clé d'hôte refusée par l'utilisateur".into())
+                Error::Auth(tr!("Clé d'hôte refusée par l'utilisateur", "Host key rejected by the user").into())
             } else {
-                Error::Connect(format!("Échec de la négociation SSH : {e}"))
+                Error::Connect(trf!("Échec de la négociation SSH : {e}", "SSH negotiation failed: {e}"))
             }
         })?;
-        self.log("response", "Négociation SSH terminée (chiffrement établi)");
+        self.log(
+            "response",
+            tr!(
+                "Négociation SSH terminée (chiffrement établi)",
+                "SSH negotiation complete (encryption established)"
+            ),
+        );
 
         if let Err(err) = self.authenticate(&mut handle, &site).await {
             let _ = handle
@@ -484,7 +536,10 @@ impl Session {
         *self.home.lock().unwrap() = home.clone();
         self.log(
             "status",
-            format!("Authentifié. Répertoire personnel : {home}"),
+            trf!(
+                "Authentifié. Répertoire personnel : {home}",
+                "Authenticated. Home directory: {home}"
+            ),
         );
         let (shell, ui, c) = (self.shell.clone(), self.ui.clone(), conn.clone());
         tokio::spawn(async move { probe_shell(c, shell, ui).await });
@@ -508,7 +563,10 @@ impl Session {
         self.closing.store(true, Ordering::SeqCst);
         let _guard = self.connect_lock.lock().await;
         self.drop_conn().await;
-        self.log("status", format!("Déconnecté de {}", self.label()));
+        self.log(
+            "status",
+            trf!("Déconnecté de {}", "Disconnected from {}", self.label()),
+        );
     }
 
     /// SFTP partagé pour la navigation (None si le serveur ne le propose pas).
@@ -530,14 +588,23 @@ impl Session {
             match conn.open_sftp().await {
                 Ok(s) => {
                     if conn.generation == 1 {
-                        self.log("status", "Sous-système SFTP disponible pour la navigation");
+                        self.log(
+                            "status",
+                            tr!(
+                                "Sous-système SFTP disponible pour la navigation",
+                                "SFTP subsystem available for browsing"
+                            ),
+                        );
                     }
                     *slot = Some(Some(Arc::new(s)));
                 }
                 Err(e) => {
                     self.log(
                         "status",
-                        format!("SFTP indisponible ({e}), navigation via commandes shell"),
+                        trf!(
+                            "SFTP indisponible ({e}), navigation via commandes shell",
+                            "SFTP unavailable ({e}), browsing via shell commands"
+                        ),
                     );
                     *slot = Some(None);
                 }
@@ -577,7 +644,7 @@ impl Session {
         if persist {
             let id = self.site.lock().unwrap().id.clone();
             if !self.secrets.set(&id, kind, value) {
-                self.log("error", "Trousseau système indisponible : secret conservé pour cette session uniquement");
+                self.log("error", tr!("Trousseau système indisponible : secret conservé pour cette session uniquement", "System keyring unavailable: secret kept for this session only"));
             }
         }
     }
@@ -600,8 +667,9 @@ impl Session {
             .await
         {
             PromptReply::Secret { value, remember } => Ok((value, remember)),
-            _ => Err(Error::Cancelled(format!(
+            _ => Err(Error::Cancelled(trf!(
                 "Saisie annulée : {}",
+                "Input cancelled: {}",
                 title.to_lowercase()
             ))),
         }
@@ -613,8 +681,9 @@ impl Session {
         }
         let path = expand_tilde(&site.key_file);
         if !path.exists() {
-            return Err(Error::Auth(format!(
+            return Err(Error::Auth(trf!(
                 "Clé privée introuvable : {}",
+                "Private key not found: {}",
                 path.display()
             )));
         }
@@ -635,12 +704,19 @@ impl Session {
                             Ok(c) => {
                                 self.log(
                                     "status",
-                                    format!("Certificat chargé : {}", cert_path.display()),
+                                    trf!(
+                                        "Certificat chargé : {}",
+                                        "Certificate loaded: {}",
+                                        cert_path.display()
+                                    ),
                                 );
                                 Some(c)
                             }
                             Err(e) => {
-                                self.log("error", format!("Certificat ignoré : {e}"));
+                                self.log(
+                                    "error",
+                                    trf!("Certificat ignoré : {e}", "Certificate ignored: {e}"),
+                                );
                                 None
                             }
                         }
@@ -668,8 +744,9 @@ impl Session {
                         .iter()
                         .any(|w| msg.contains(w));
                     if !encrypted {
-                        return Err(Error::Auth(format!(
+                        return Err(Error::Auth(trf!(
                             "Clé privée illisible ({}) : {err}",
+                            "Unreadable private key ({}): {err}",
                             path.display()
                         )));
                     }
@@ -680,17 +757,29 @@ impl Session {
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_default();
             let label = if attempt > 0 || !passphrase.is_empty() {
-                "Phrase de passe incorrecte, réessayez :"
+                tr!(
+                    "Phrase de passe incorrecte, réessayez :",
+                    "Wrong passphrase, try again:"
+                )
             } else {
-                "Phrase de passe :"
+                tr!("Phrase de passe :", "Passphrase:")
             };
             let (p, r) = self
-                .ask_secret("Clé privée protégée", format!("Clé {name}\n{label}"))
+                .ask_secret(
+                    tr!("Clé privée protégée", "Protected private key"),
+                    trf!("Clé {name}\n{label}", "Key {name}\n{label}"),
+                )
                 .await?;
             passphrase = p;
             remember = r;
         }
-        Err(Error::Auth("Phrase de passe de la clé incorrecte".into()))
+        Err(Error::Auth(
+            tr!(
+                "Phrase de passe de la clé incorrecte",
+                "Wrong key passphrase"
+            )
+            .into(),
+        ))
     }
 
     async fn rsa_hash(&self, handle: &Handle<ClientHandler>, key: &PrivateKey) -> Option<HashAlg> {
@@ -727,16 +816,25 @@ impl Session {
                 fingerprint(key.public_key())
             );
             if let Some(cert) = cert {
-                self.log("command", format!("Essai du certificat {desc}"));
+                self.log(
+                    "command",
+                    trf!("Essai du certificat {desc}", "Trying certificate {desc}"),
+                );
                 let r = handle
                     .authenticate_openssh_cert(user, key.clone(), cert)
                     .await?;
                 if accepted(&r) {
                     return Ok(Some(r));
                 }
-                self.log("response", format!("Certificat refusé : {desc}"));
+                self.log(
+                    "response",
+                    trf!("Certificat refusé : {desc}", "Certificate rejected: {desc}"),
+                );
             }
-            self.log("command", format!("Essai de la clé {desc}"));
+            self.log(
+                "command",
+                trf!("Essai de la clé {desc}", "Trying key {desc}"),
+            );
             let hash = self.rsa_hash(handle, &key).await;
             let r = handle
                 .authenticate_publickey(user, PrivateKeyWithHashAlg::new(key, hash))
@@ -744,7 +842,10 @@ impl Session {
             if accepted(&r) {
                 return Ok(Some(r));
             }
-            self.log("response", format!("Clé refusée : {desc}"));
+            self.log(
+                "response",
+                trf!("Clé refusée : {desc}", "Key rejected: {desc}"),
+            );
         }
         if site.use_agent {
             match AgentClient::connect_env().await {
@@ -753,7 +854,11 @@ impl Session {
                         if !ids.is_empty() {
                             self.log(
                                 "status",
-                                format!("Agent SSH : {} clé(s) disponible(s)", ids.len()),
+                                trf!(
+                                    "Agent SSH : {} clé(s) disponible(s)",
+                                    "SSH agent: {} key(s) available",
+                                    ids.len()
+                                ),
                             );
                             any = true;
                         }
@@ -761,7 +866,10 @@ impl Session {
                             let pk = id.public_key().into_owned();
                             let desc =
                                 format!("{} {} (agent)", pk.algorithm().as_str(), fingerprint(&pk));
-                            self.log("command", format!("Essai de la clé {desc}"));
+                            self.log(
+                                "command",
+                                trf!("Essai de la clé {desc}", "Trying key {desc}"),
+                            );
                             let res = match &id {
                                 AgentIdentity::PublicKey { key, .. } => {
                                     let hash = if key.algorithm().is_rsa() {
@@ -796,20 +904,39 @@ impl Session {
                             };
                             match res {
                                 Ok(r) if accepted(&r) => return Ok(Some(r)),
-                                Ok(_) => self.log("response", format!("Clé refusée : {desc}")),
-                                Err(e) => {
-                                    self.log("error", format!("Erreur avec la clé {desc} : {e}"))
-                                }
+                                Ok(_) => self.log(
+                                    "response",
+                                    trf!("Clé refusée : {desc}", "Key rejected: {desc}"),
+                                ),
+                                Err(e) => self.log(
+                                    "error",
+                                    trf!(
+                                        "Erreur avec la clé {desc} : {e}",
+                                        "Error with key {desc}: {e}"
+                                    ),
+                                ),
                             }
                         }
                     }
-                    Err(e) => self.log("trace", format!("Agent SSH indisponible : {e}")),
+                    Err(e) => self.log(
+                        "trace",
+                        trf!("Agent SSH indisponible : {e}", "SSH agent unavailable: {e}"),
+                    ),
                 },
-                Err(e) => self.log("trace", format!("Agent SSH indisponible : {e}")),
+                Err(e) => self.log(
+                    "trace",
+                    trf!("Agent SSH indisponible : {e}", "SSH agent unavailable: {e}"),
+                ),
             }
         }
         if !any {
-            self.log("error", "Aucune clé SSH disponible (fichier ou agent)");
+            self.log(
+                "error",
+                tr!(
+                    "Aucune clé SSH disponible (fichier ou agent)",
+                    "No SSH key available (file or agent)"
+                ),
+            );
         }
         Ok(None)
     }
@@ -832,7 +959,13 @@ impl Session {
         };
         let mut allowed = match handle.authenticate_none(&user).await? {
             AuthResult::Success => {
-                self.log("status", "Authentifié sans mot de passe (méthode none)");
+                self.log(
+                    "status",
+                    tr!(
+                        "Authentifié sans mot de passe (méthode none)",
+                        "Authenticated without password (none method)"
+                    ),
+                );
                 return Ok(());
             }
             AuthResult::Failure {
@@ -844,13 +977,18 @@ impl Session {
         loop {
             if handle.is_closed() {
                 return Err(Error::Auth(
-                    "Le serveur a fermé la connexion pendant l'authentification".into(),
+                    tr!(
+                        "Le serveur a fermé la connexion pendant l'authentification",
+                        "The server closed the connection during authentication"
+                    )
+                    .into(),
                 ));
             }
             self.log(
                 "response",
-                format!(
+                trf!(
                     "Méthodes acceptées par le serveur : {}",
+                    "Methods accepted by the server: {}",
                     method_names(&allowed).join(", ")
                 ),
             );
@@ -860,7 +998,13 @@ impl Session {
                 tried_pk = true;
                 match self.try_keys(handle, &user, site).await? {
                     Some(AuthResult::Success) => {
-                        self.log("status", format!("Étape {step} réussie : clé acceptée"));
+                        self.log(
+                            "status",
+                            trf!(
+                                "Étape {step} réussie : clé acceptée",
+                                "Step {step} succeeded: key accepted"
+                            ),
+                        );
                         return Ok(());
                     }
                     Some(AuthResult::Failure {
@@ -868,7 +1012,7 @@ impl Session {
                     }) => {
                         self.log(
                             "status",
-                            format!("Étape {step} réussie : clé acceptée (authentification partielle), second facteur requis"),
+                            trf!("Étape {step} réussie : clé acceptée (authentification partielle), second facteur requis", "Step {step} succeeded: key accepted (partial authentication), second factor required"),
                         );
                         step += 1;
                         allowed = remaining_methods;
@@ -889,7 +1033,10 @@ impl Session {
                         KeyboardInteractiveAuthResponse::Success => {
                             self.log(
                                 "status",
-                                format!("Étape {step} réussie : keyboard-interactive"),
+                                trf!(
+                                    "Étape {step} réussie : keyboard-interactive",
+                                    "Step {step} succeeded: keyboard-interactive"
+                                ),
                             );
                             return Ok(());
                         }
@@ -900,18 +1047,24 @@ impl Session {
                             if partial_success {
                                 self.log(
                                     "status",
-                                    format!("Étape {step} réussie : keyboard-interactive"),
+                                    trf!(
+                                        "Étape {step} réussie : keyboard-interactive",
+                                        "Step {step} succeeded: keyboard-interactive"
+                                    ),
                                 );
                                 step += 1;
                             } else {
                                 self.log(
                                     "error",
-                                    "Échec keyboard-interactive : code ou réponse refusé",
+                                    tr!(
+                                        "Échec keyboard-interactive : code ou réponse refusé",
+                                        "keyboard-interactive failed: code or answer rejected"
+                                    ),
                                 );
                                 self.forget(SECRET_PASSWORD);
                                 if handle.is_closed() {
                                     return Err(Error::Auth(
-                                        "Le serveur a fermé la connexion après l'échec du code (trop de tentatives ?)".into(),
+                                        tr!("Le serveur a fermé la connexion après l'échec du code (trop de tentatives ?)", "The server closed the connection after the failed code (too many attempts?)").into(),
                                     ));
                                 }
                             }
@@ -951,8 +1104,12 @@ impl Session {
                 if password.is_empty() {
                     let (p, r) = self
                         .ask_secret(
-                            "Mot de passe",
-                            format!("Mot de passe pour {user}@{} :", site.host),
+                            tr!("Mot de passe", "Password"),
+                            trf!(
+                                "Mot de passe pour {user}@{} :",
+                                "Password for {user}@{}:",
+                                site.host
+                            ),
                         )
                         .await?;
                     password = p;
@@ -961,7 +1118,13 @@ impl Session {
                 match handle.authenticate_password(&user, &password).await? {
                     AuthResult::Success => {
                         self.remember(SECRET_PASSWORD, &password, remember);
-                        self.log("status", format!("Étape {step} réussie : mot de passe"));
+                        self.log(
+                            "status",
+                            trf!(
+                                "Étape {step} réussie : mot de passe",
+                                "Step {step} succeeded: password"
+                            ),
+                        );
                         return Ok(());
                     }
                     AuthResult::Failure {
@@ -969,20 +1132,27 @@ impl Session {
                         partial_success: true,
                     } => {
                         self.remember(SECRET_PASSWORD, &password, remember);
-                        self.log("status", format!("Étape {step} réussie : mot de passe"));
+                        self.log(
+                            "status",
+                            trf!(
+                                "Étape {step} réussie : mot de passe",
+                                "Step {step} succeeded: password"
+                            ),
+                        );
                         step += 1;
                         allowed = remaining_methods;
                     }
                     AuthResult::Failure { .. } => {
-                        self.log("error", "Mot de passe refusé");
+                        self.log("error", tr!("Mot de passe refusé", "Password rejected"));
                         self.forget(SECRET_PASSWORD);
                     }
                 }
                 continue;
             }
 
-            return Err(Error::Auth(format!(
+            return Err(Error::Auth(trf!(
                 "Authentification impossible : méthodes restantes [{}] non satisfaites avec le type d'authentification choisi",
+                "Authentication impossible: remaining methods [{}] cannot be satisfied with the chosen authentication type",
                 method_names(&allowed).join(", ")
             )));
         }
@@ -1003,7 +1173,10 @@ impl Session {
         let mut missing: Vec<(usize, PromptField)> = Vec::new();
         for (i, p) in prompts.iter().enumerate() {
             let kind = classify_prompt(&p.prompt);
-            self.log("response", format!("Serveur demande : {}", p.prompt.trim()));
+            self.log(
+                "response",
+                trf!("Serveur demande : {}", "Server asks: {}", p.prompt.trim()),
+            );
             if kind == "otp" && site.otp_mode == OTP_SECRET && auth_uses_otp(&site.auth) {
                 let secret = self.secret(SECRET_OTP);
                 if !secret.is_empty() {
@@ -1015,11 +1188,17 @@ impl Session {
                             answers[i] = code;
                             self.log(
                                 "status",
-                                "Code TOTP généré automatiquement depuis le secret enregistré",
+                                tr!(
+                                    "Code TOTP généré automatiquement depuis le secret enregistré",
+                                    "TOTP code generated automatically from the stored secret"
+                                ),
                             );
                             continue;
                         }
-                        Err(e) => self.log("error", format!("Secret TOTP invalide : {e}")),
+                        Err(e) => self.log(
+                            "error",
+                            trf!("Secret TOTP invalide : {e}", "Invalid TOTP secret: {e}"),
+                        ),
                     }
                 }
             }
@@ -1052,7 +1231,11 @@ impl Session {
                 .await;
             let PromptReply::Interactive { answers: given } = reply else {
                 return Err(Error::Cancelled(
-                    "Authentification annulée par l'utilisateur".into(),
+                    tr!(
+                        "Authentification annulée par l'utilisateur",
+                        "Authentication cancelled by the user"
+                    )
+                    .into(),
                 ));
             };
             for ((i, field), value) in missing.iter().zip(given) {
@@ -1095,7 +1278,11 @@ async fn probe_shell(conn: Arc<Conn>, shell: Arc<AtomicU8>, ui: Arc<dyn Ui>) {
     if !ok {
         ui.log(
             "status",
-            "Le serveur n'accepte pas l'exécution de commandes (SFTP uniquement)".into(),
+            tr!(
+                "Le serveur n'accepte pas l'exécution de commandes (SFTP uniquement)",
+                "The server does not accept commands (SFTP only)"
+            )
+            .into(),
         );
     }
 }

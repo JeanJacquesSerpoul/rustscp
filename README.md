@@ -26,6 +26,12 @@ WebKitGTK 4.1 et OpenSSL (Debian : `libwebkit2gtk-4.1-dev libssl-dev libdbus-1-d
 
 Développement : `cargo tauri dev`.
 
+## Langues
+
+L'interface et les messages sont disponibles en **français** et en **anglais**.
+Par défaut, la langue suit celle du système (`LANG`, `LC_MESSAGES`…) : français si
+elle commence par `fr`, anglais sinon. Elle peut être forcée dans **Paramètres → Langue**.
+
 ## Authentification multi-facteurs
 
 Le moteur suit les étapes imposées par le serveur :
@@ -74,7 +80,7 @@ parallèles sont des canaux SSH distincts sur **une seule connexion authentifié
   restant, annulation, nouvelle tentative, pause ; politique d'écrasement (demander,
   écraser, si plus récent, si taille différente, renommer, ignorer, « pour toute la file »).
 - Reconnexion transparente si la connexion tombe pendant les transferts.
-- Thème clair / sombre selon le bureau.
+- Thème clair / sombre selon le bureau ; interface en français ou en anglais.
 
 ### Raccourcis
 

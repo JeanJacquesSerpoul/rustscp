@@ -23,6 +23,7 @@ use crate::scp;
 use crate::sftp::Sftp;
 use crate::ssh::Session;
 use crate::ui::Ui;
+use rustscp_shared::trf;
 
 /// Compteurs mis à jour sans verrou pendant le transfert.
 struct Progress {
@@ -591,8 +592,9 @@ impl TransferManager {
                     };
                     self.ui.log(
                         "status",
-                        format!(
+                        trf!(
                             "{arrow} {name} : {} octets en {elapsed:.1} s ({:.1} Mio/s, {})",
+                            "{arrow} {name}: {} bytes in {elapsed:.1} s ({:.1} MiB/s, {})",
                             fmt_int(size),
                             size as f64 / elapsed / 1048576.0,
                             job.protocol.to_uppercase()
@@ -602,9 +604,13 @@ impl TransferManager {
                         self.edits.opened(job.session.id, &job.local, &job.remote);
                     }
                 }
-                TransferStatus::Failed => self
-                    .ui
-                    .log("error", format!("Échec du transfert de {name} : {error}")),
+                TransferStatus::Failed => self.ui.log(
+                    "error",
+                    trf!(
+                        "Échec du transfert de {name} : {error}",
+                        "Transfer of {name} failed: {error}"
+                    ),
+                ),
                 _ => {}
             }
             self.ui.transfer_finished(event);
@@ -677,13 +683,18 @@ impl TransferManager {
                     && let Ok(st) = fs::metadata(&job.local)
                 {
                     let Some(remote) = session.stat(&job.remote).await? else {
-                        return Err(Error::Remote(format!(
+                        return Err(Error::Remote(trf!(
                             "{} : fichier introuvable",
+                            "{}: file not found",
                             job.remote
                         )));
                     };
                     if remote.is_dir {
-                        return Err(Error::Remote(format!("{} est un dossier", job.remote)));
+                        return Err(Error::Remote(trf!(
+                            "{} est un dossier",
+                            "{} is a directory",
+                            job.remote
+                        )));
                     }
                     job.progress.size.store(remote.size, Ordering::Relaxed);
                     if !self
@@ -729,12 +740,20 @@ impl TransferManager {
             Direction::Up => {
                 let st = fs::metadata(&job.local)?;
                 if st.is_dir() {
-                    return Err(Error::Io(format!("{} est un dossier", job.local.display())));
+                    return Err(Error::Io(trf!(
+                        "{} est un dossier",
+                        "{} is a directory",
+                        job.local.display()
+                    )));
                 }
                 job.progress.size.store(st.len(), Ordering::Relaxed);
                 if let Some(remote) = session.stat(&job.remote).await? {
                     if remote.is_dir {
-                        return Err(Error::Remote(format!("{} est un dossier", job.remote)));
+                        return Err(Error::Remote(trf!(
+                            "{} est un dossier",
+                            "{} is a directory",
+                            job.remote
+                        )));
                     }
                     if !job.force
                         && !self
@@ -1094,8 +1113,9 @@ impl Edits {
         crate::local::open_with_default(local);
         self.ui.log(
             "status",
-            format!(
+            trf!(
                 "Fichier ouvert pour édition : {} (les modifications seront proposées à l'envoi)",
+                "File opened for editing: {} (changes will be offered for upload)",
                 local.display()
             ),
         );

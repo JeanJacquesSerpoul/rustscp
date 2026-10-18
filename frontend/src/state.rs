@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex};
 
 use futures::channel::oneshot;
 use leptos::prelude::*;
+use rustscp_shared::tr;
 use rustscp_shared::util::name_matches;
 use rustscp_shared::{
     Entry, LogLine, PromptRequest, SecretBackend, Settings, Site, SitesFile, TransferPoll,
@@ -20,6 +21,8 @@ pub struct AppInfo {
     pub default_key: String,
     pub home: String,
     pub user: String,
+    /// Langue effective choisie par le cœur (fr | en).
+    pub lang: String,
 }
 
 // ------------------------------------------------------------------ journal
@@ -51,12 +54,12 @@ pub enum Col {
 impl Col {
     pub fn title(self) -> &'static str {
         match self {
-            Col::Name => "Nom",
-            Col::Size => "Taille",
+            Col::Name => tr!("Nom", "Name"),
+            Col::Size => tr!("Taille", "Size"),
             Col::Type => "Type",
-            Col::Modified => "Modifié",
-            Col::Perms => "Droits",
-            Col::Owner => "Propriétaire/Groupe",
+            Col::Modified => tr!("Modifié", "Modified"),
+            Col::Perms => tr!("Droits", "Permissions"),
+            Col::Owner => tr!("Propriétaire/Groupe", "Owner/Group"),
         }
     }
 }
@@ -293,7 +296,7 @@ impl Tab {
 
     pub fn title(&self) -> String {
         match self.site.get() {
-            None => "Nouvel onglet".into(),
+            None => tr!("Nouvel onglet", "New tab").into(),
             Some(site) => {
                 let prefix = match self.conn.get() {
                     ConnState::Connecting => "⏳ ",

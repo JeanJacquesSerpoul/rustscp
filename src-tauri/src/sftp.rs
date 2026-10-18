@@ -18,6 +18,7 @@ use rustscp_shared::Entry;
 use rustscp_shared::util::{S_IFDIR, S_IFLNK, S_IFMT, rjoin};
 
 use crate::error::{Error, Result};
+use rustscp_shared::tr;
 
 /// Taille des blocs lus / écrits et nombre de requêtes simultanées.
 pub const CHUNK: u32 = 64 * 1024;
@@ -77,7 +78,15 @@ impl Sftp {
         let raw = RawSftpSession::new_with_config(chan.into_stream(), cfg);
         let version = tokio::time::timeout(std::time::Duration::from_secs(20), raw.init())
             .await
-            .map_err(|_| Error::Remote("SFTP : pas de réponse du serveur".into()))??;
+            .map_err(|_| {
+                Error::Remote(
+                    tr!(
+                        "SFTP : pas de réponse du serveur",
+                        "SFTP: no response from the server"
+                    )
+                    .into(),
+                )
+            })??;
         let posix_rename = version.extensions.contains_key("posix-rename@openssh.com");
         Ok(Sftp {
             raw,
@@ -111,7 +120,9 @@ impl Sftp {
             .into_iter()
             .next()
             .map(|f| f.filename)
-            .ok_or_else(|| Error::Remote("realpath : réponse vide".into()))
+            .ok_or_else(|| {
+                Error::Remote(tr!("realpath : réponse vide", "realpath: empty response").into())
+            })
     }
 
     /// None si le chemin n'existe pas.
@@ -362,7 +373,11 @@ impl Sftp {
                     done = true;
                     if off < size {
                         return Err(Error::Io(
-                            "Le fichier local a été tronqué pendant l'envoi".into(),
+                            tr!(
+                                "Le fichier local a été tronqué pendant l'envoi",
+                                "The local file was truncated during upload"
+                            )
+                            .into(),
                         ));
                     }
                     break;

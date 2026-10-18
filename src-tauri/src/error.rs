@@ -16,7 +16,7 @@ pub enum Error {
     Remote(String),
     #[error("{0}")]
     Io(String),
-    #[error("Transfert annulé")]
+    #[error("{}", rustscp_shared::tr!("Transfert annulé", "Transfer cancelled"))]
     TransferCancelled,
 }
 

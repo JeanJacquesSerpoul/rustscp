@@ -18,6 +18,7 @@ use crate::ssh::Session;
 use crate::transfer::{Edits, NewItem, TransferManager, expand_download, expand_upload};
 use crate::ui::{PromptHub, Ui};
 use crate::{config, local, sites, totp};
+use rustscp_shared::{tr, trf};
 
 type CmdResult<T> = Result<T, CmdError>;
 
@@ -32,7 +33,9 @@ pub struct AppState {
 
 impl AppState {
     pub fn new(ui: Arc<dyn Ui>, hub: Arc<PromptHub>, secrets: Arc<SecretStore>) -> Self {
-        let settings = Arc::new(RwLock::new(config::load_settings()));
+        let loaded = config::load_settings();
+        config::apply_language(&loaded);
+        let settings = Arc::new(RwLock::new(loaded));
         let transfers = TransferManager::new(settings.clone(), ui.clone());
         AppState {
             ui,
@@ -52,7 +55,7 @@ impl AppState {
             .cloned()
             .ok_or_else(|| CmdError {
                 kind: "closed",
-                message: "Session fermée".into(),
+                message: tr!("Session fermée", "Session closed").into(),
             })
     }
 }
@@ -72,6 +75,8 @@ pub struct AppInfo {
     default_key: String,
     home: String,
     user: String,
+    /// Langue effective (fr | en).
+    lang: &'static str,
 }
 
 #[tauri::command(rename_all = "snake_case")]
@@ -84,11 +89,12 @@ pub fn app_info(state: State<'_, AppState>) -> AppInfo {
         version: rustscp_shared::VERSION,
         secrets: SecretBackend {
             available: state.secrets.available,
-            name: state.secrets.backend_name.clone(),
+            name: state.secrets.backend_name().into(),
         },
         default_key: local::default_key(),
         home: local::home().to_string_lossy().into_owned(),
         user: std::env::var("USER").unwrap_or_default(),
+        lang: rustscp_shared::lang().code(),
     }
 }
 
@@ -100,6 +106,7 @@ pub fn settings_get(state: State<'_, AppState>) -> Settings {
 #[tauri::command(rename_all = "snake_case")]
 pub fn settings_set(state: State<'_, AppState>, settings: Settings) -> CmdResult<()> {
     config::save_settings(&settings)?;
+    config::apply_language(&settings);
     *state.settings.write().unwrap() = settings;
     state.transfers.ensure_workers();
     Ok(())
@@ -123,7 +130,10 @@ pub fn copy_text(app: AppHandle, text: String) -> CmdResult<()> {
 pub async fn pick_file(app: AppHandle, start: String) -> CmdResult<Option<String>> {
     use tauri_plugin_dialog::DialogExt;
     blocking(move || {
-        let mut d = app.dialog().file().set_title("Choisir une clé privée");
+        let mut d = app
+            .dialog()
+            .file()
+            .set_title(tr!("Choisir une clé privée", "Choose a private key"));
         let dir = crate::ssh::expand_tilde(&start);
         if dir.is_dir() {
             d = d.set_directory(dir);
@@ -139,7 +149,10 @@ pub async fn pick_file(app: AppHandle, start: String) -> CmdResult<Option<String
 pub async fn pick_dir(app: AppHandle, start: String) -> CmdResult<Option<String>> {
     use tauri_plugin_dialog::DialogExt;
     blocking(move || {
-        let mut d = app.dialog().file().set_title("Choisir un dossier");
+        let mut d = app
+            .dialog()
+            .file()
+            .set_title(tr!("Choisir un dossier", "Choose a folder"));
         let dir = crate::ssh::expand_tilde(&start);
         if dir.is_dir() {
             d = d.set_directory(dir);
@@ -428,10 +441,11 @@ pub fn transfer_running(state: State<'_, AppState>, running: bool) {
     state.transfers.set_running(running);
     state.ui.log(
         "status",
-        format!(
-            "File de transferts {}",
-            if running { "reprise" } else { "mise en pause" }
-        ),
+        if running {
+            tr!("File de transferts reprise", "Transfer queue resumed").to_string()
+        } else {
+            tr!("File de transferts mise en pause", "Transfer queue paused").to_string()
+        },
     );
 }
 
@@ -461,7 +475,11 @@ pub fn local_resolve(path: String) -> CmdResult<String> {
         Ok(c) if c.is_dir() => Ok(c.to_string_lossy().into_owned()),
         _ => Err(CmdError {
             kind: "io",
-            message: format!("Dossier introuvable : {}", p.display()),
+            message: trf!(
+                "Dossier introuvable : {}",
+                "Folder not found: {}",
+                p.display()
+            ),
         }),
     }
 }
@@ -476,7 +494,7 @@ pub fn local_rename(src: String, dst: String) -> CmdResult<()> {
     if std::path::Path::new(&dst).exists() {
         return Err(CmdError {
             kind: "io",
-            message: format!("{dst} existe déjà"),
+            message: trf!("{dst} existe déjà", "{dst} already exists"),
         });
     }
     Ok(std::fs::rename(src, dst)?)
@@ -485,7 +503,7 @@ pub fn local_rename(src: String, dst: String) -> CmdResult<()> {
 #[tauri::command(rename_all = "snake_case")]
 pub async fn local_trash(paths: Vec<String>) -> CmdResult<()> {
     blocking(move || {
-        trash::delete_all(&paths).map_err(|e| CmdError::from(format!("Corbeille : {e}")))
+        trash::delete_all(&paths).map_err(|e| CmdError::from(trf!("Corbeille : {e}", "Trash: {e}")))
     })
     .await?
 }

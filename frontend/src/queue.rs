@@ -15,24 +15,30 @@ use crate::api::{call, fire};
 use crate::icons::{file_icon, icon};
 use crate::layout::{use_height, visible_range};
 use crate::state::{Ctx, MenuItem, MenuState, ctx};
+use rustscp_shared::tr;
 
 const ROW_H: f64 = 22.0;
-const TITLES: [&str; 3] = [
-    "Fichiers en attente",
-    "Transferts échoués",
-    "Transferts réussis",
-];
-const COLS: [(&str, f64); 9] = [
-    ("Fichier local", 300.0),
-    ("", 26.0),
-    ("Fichier distant", 300.0),
-    ("Taille", 80.0),
-    ("Progression", 130.0),
-    ("Vitesse", 90.0),
-    ("Restant", 70.0),
-    ("Statut", 220.0),
-    ("Serveur", 160.0),
-];
+fn titles() -> [&'static str; 3] {
+    [
+        tr!("Fichiers en attente", "Queued files"),
+        tr!("Transferts échoués", "Failed transfers"),
+        tr!("Transferts réussis", "Successful transfers"),
+    ]
+}
+
+fn cols() -> [(&'static str, f64); 9] {
+    [
+        (tr!("Fichier local", "Local file"), 300.0),
+        ("", 26.0),
+        (tr!("Fichier distant", "Remote file"), 300.0),
+        (tr!("Taille", "Size"), 80.0),
+        (tr!("Progression", "Progress"), 130.0),
+        (tr!("Vitesse", "Speed"), 90.0),
+        (tr!("Restant", "Remaining"), 70.0),
+        (tr!("Statut", "Status"), 220.0),
+        (tr!("Serveur", "Server"), 160.0),
+    ]
+}
 
 /// Interroge le cœur périodiquement (mise à jour incrémentale).
 pub fn start_polling(c: Ctx) {
@@ -85,35 +91,47 @@ fn menu(c: Ctx, group: usize, x: f64, y: f64) {
     let mut items = Vec::new();
     if group == 0 {
         items.push(
-            MenuItem::action("Annuler la sélection", "stop", move || {
-                fire("transfer_cancel", json!({ "ids": s1 }))
-            })
+            MenuItem::action(
+                tr!("Annuler la sélection", "Cancel selection"),
+                "stop",
+                move || fire("transfer_cancel", json!({ "ids": s1 })),
+            )
             .enabled(any),
         );
-        items.push(MenuItem::action("Tout annuler", "stop", move || {
-            fire("transfer_cancel_all", json!({}))
-        }));
+        items.push(MenuItem::action(
+            tr!("Tout annuler", "Cancel all"),
+            "stop",
+            move || fire("transfer_cancel_all", json!({})),
+        ));
     } else {
         if group == 1 {
             items.push(
-                MenuItem::action("Réessayer la sélection", "refresh", move || {
-                    fire("transfer_retry", json!({ "ids": s1 }))
-                })
+                MenuItem::action(
+                    tr!("Réessayer la sélection", "Retry selection"),
+                    "refresh",
+                    move || fire("transfer_retry", json!({ "ids": s1 })),
+                )
                 .enabled(any),
             );
-            items.push(MenuItem::action("Tout réessayer", "refresh", move || {
-                fire("transfer_retry", json!({ "ids": ids_of(c, 1) }))
-            }));
+            items.push(MenuItem::action(
+                tr!("Tout réessayer", "Retry all"),
+                "refresh",
+                move || fire("transfer_retry", json!({ "ids": ids_of(c, 1) })),
+            ));
         }
         items.push(
-            MenuItem::action("Retirer la sélection", "trash", move || {
-                fire("transfer_remove", json!({ "ids": s2 }))
-            })
+            MenuItem::action(
+                tr!("Retirer la sélection", "Remove selection"),
+                "trash",
+                move || fire("transfer_remove", json!({ "ids": s2 })),
+            )
             .enabled(any),
         );
-        items.push(MenuItem::action("Tout effacer", "trash", move || {
-            fire("transfer_clear", json!({ "group": group }))
-        }));
+        items.push(MenuItem::action(
+            tr!("Tout effacer", "Clear all"),
+            "trash",
+            move || fire("transfer_clear", json!({ "group": group })),
+        ));
     }
     c.menu.set(Some(MenuState { x, y, items }));
 }
@@ -124,12 +142,12 @@ pub fn QueuePanel() -> impl IntoView {
     let q = c.queue;
     let vp = NodeRef::<html::Div>::new();
     let height = use_height(vp);
-    let tpl = COLS
+    let tpl = cols()
         .iter()
         .map(|(_, w)| format!("{w}px "))
         .collect::<String>()
         + "minmax(0,1fr)";
-    let total_w: f64 = COLS.iter().map(|(_, w)| w).sum::<f64>() + 20.0;
+    let total_w: f64 = cols().iter().map(|(_, w)| w).sum::<f64>() + 20.0;
 
     let switch = move |g: usize| {
         q.tab.set(g);
@@ -163,7 +181,7 @@ pub fn QueuePanel() -> impl IntoView {
                     <button class="tab-btn" class:active=move || q.tab.get() == g on:click=move |_| switch(g)>
                         {move || {
                             let n = q.groups[g].with(|v| v.len());
-                            if n > 0 { format!("{} ({n})", TITLES[g]) } else { TITLES[g].to_string() }
+                            if n > 0 { format!("{} ({n})", titles()[g]) } else { titles()[g].to_string() }
                         }}
                     </button>
                 }).collect_view()}
@@ -194,7 +212,7 @@ pub fn QueuePanel() -> impl IntoView {
                 }>
                 <div class="list-inner" style:min-width=format!("{total_w}px")>
                     <div class="list-header" style:grid-template-columns=tpl.clone()>
-                        {COLS.iter().map(|(t, _)| view! { <div class="hcell"><span class="htext">{*t}</span></div> }).collect_view()}
+                        {cols().iter().map(|(t, _)| view! { <div class="hcell"><span class="htext">{*t}</span></div> }).collect_view()}
                         <div class="hcell filler"></div>
                     </div>
                     <div class="rows" style:height=move || format!("{}px", q.groups[q.tab.get()].with(|v| v.len()) as f64 * ROW_H)>

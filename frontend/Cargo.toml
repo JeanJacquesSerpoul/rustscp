@@ -23,5 +23,5 @@ features = [
   "Window", "Document", "Element", "HtmlElement", "HtmlInputElement", "HtmlTextAreaElement",
   "HtmlSelectElement", "DomRect", "MouseEvent", "KeyboardEvent", "WheelEvent", "FocusEvent",
   "Event", "EventTarget", "Storage", "ResizeObserver", "ResizeObserverEntry", "CssStyleDeclaration",
-  "ScrollIntoViewOptions", "ScrollLogicalPosition", "Node", "DomTokenList",
+  "ScrollIntoViewOptions", "ScrollLogicalPosition", "Node", "DomTokenList", "Location",
 ]

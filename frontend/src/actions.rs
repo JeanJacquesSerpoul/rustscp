@@ -13,6 +13,7 @@ use serde_json::{Value, json};
 use crate::api::{call, fire};
 use crate::dialogs::{alert, ask_text, chmod_dialog, confirm};
 use crate::state::{ConnState, Ctx, PARENT, Side, Tab};
+use rustscp_shared::{tr, trf};
 
 // ------------------------------------------------------------------ onglets
 pub fn new_tab(ctx: Ctx) -> Tab {
@@ -39,8 +40,11 @@ pub fn close_tab(ctx: Ctx, id: u64) {
                 .unwrap_or(false);
             if busy
                 && !confirm(
-                    "Transferts en cours",
-                    "Des transferts sont en cours sur cet onglet. Les annuler et fermer ?",
+                    tr!("Transferts en cours", "Transfers in progress"),
+                    tr!(
+                        "Des transferts sont en cours sur cet onglet. Les annuler et fermer ?",
+                        "Transfers are in progress on this tab. Cancel them and close?"
+                    ),
                 )
                 .await
             {
@@ -130,7 +134,7 @@ async fn load_local(ctx: Ctx, tab: Tab, path: String, reset: bool) {
             }
         }
         Err(e) => {
-            tab.local.busy.set(Some(format!("Erreur : {e}")));
+            tab.local.busy.set(Some(trf!("Erreur : {e}", "Error: {e}")));
             tab.local.path_text.set(tab.local.path.get_untracked());
         }
     }
@@ -209,9 +213,9 @@ pub fn local_selected_paths(tab: Tab) -> Vec<String> {
 pub fn local_mkdir(ctx: Ctx, tab: Tab) {
     spawn_local(async move {
         let Some(name) = ask_text(
-            "Créer un dossier",
-            "Nom du nouveau dossier :",
-            "nouveau dossier",
+            tr!("Créer un dossier", "Create folder"),
+            tr!("Nom du nouveau dossier :", "New folder name:"),
+            tr!("nouveau dossier", "new folder"),
         )
         .await
         else {
@@ -219,7 +223,7 @@ pub fn local_mkdir(ctx: Ctx, tab: Tab) {
         };
         let path = rjoin(&tab.local.path.get_untracked(), &name);
         if let Err(e) = call::<Value>("local_mkdir", json!({ "path": path })).await {
-            tab.local.busy.set(Some(format!("Erreur : {e}")));
+            tab.local.busy.set(Some(trf!("Erreur : {e}", "Error: {e}")));
         }
         refresh_local(ctx, tab);
     });
@@ -233,7 +237,13 @@ pub fn local_rename(ctx: Ctx, tab: Tab) {
     let old = paths[0].clone();
     spawn_local(async move {
         let base = rbasename(&old).to_string();
-        let Some(new) = ask_text("Renommer", "Nouveau nom :", &base).await else {
+        let Some(new) = ask_text(
+            tr!("Renommer", "Rename"),
+            tr!("Nouveau nom :", "New name:"),
+            &base,
+        )
+        .await
+        else {
             return;
         };
         if new == base {
@@ -242,7 +252,7 @@ pub fn local_rename(ctx: Ctx, tab: Tab) {
         let dst = rjoin(&rparent(&old), &new);
         match call::<Value>("local_rename", json!({ "src": old, "dst": dst })).await {
             Ok(_) => tab.local.selected.set(HashSet::from([new])),
-            Err(e) => tab.local.busy.set(Some(format!("Erreur : {e}"))),
+            Err(e) => tab.local.busy.set(Some(trf!("Erreur : {e}", "Error: {e}"))),
         }
         refresh_local(ctx, tab);
     });
@@ -256,8 +266,12 @@ pub fn local_trash(ctx: Ctx, tab: Tab) {
     spawn_local(async move {
         if ctx.settings.get_untracked().confirm_delete
             && !confirm(
-                "Corbeille",
-                &format!("Mettre {} élément(s) à la corbeille ?", paths.len()),
+                tr!("Corbeille", "Trash"),
+                &trf!(
+                    "Mettre {} élément(s) à la corbeille ?",
+                    "Move {} item(s) to the trash?",
+                    paths.len()
+                ),
             )
             .await
         {
@@ -292,13 +306,16 @@ pub fn tab_connect(ctx: Ctx, tab: Tab, site: Site) {
     tab.site.set(Some(site.clone()));
     tab.conn.set(ConnState::Connecting);
     tab.shell_ok.set(None);
-    tab.remote
-        .busy
-        .set(Some(format!("Connexion à {}…", site.host)));
+    tab.remote.busy.set(Some(trf!(
+        "Connexion à {}…",
+        "Connecting to {}…",
+        site.host
+    )));
     ctx.log(
         "status",
-        format!(
+        trf!(
             "Connexion à {} ({}@{}:{})…",
+            "Connecting to {} ({}@{}:{})…",
             site.label(),
             site.user,
             site.host,
@@ -313,7 +330,10 @@ pub fn tab_connect(ctx: Ctx, tab: Tab, site: Site) {
             Ok(id) => id,
             Err(e) => {
                 tab.conn.set(ConnState::Lost);
-                ctx.log("error", format!("Échec de la connexion : {e}"));
+                ctx.log(
+                    "error",
+                    trf!("Échec de la connexion : {e}", "Connection failed: {e}"),
+                );
                 return;
             }
         };
@@ -341,20 +361,28 @@ pub fn tab_connect(ctx: Ctx, tab: Tab, site: Site) {
                 }
                 tab.session.set(None);
                 tab.conn.set(ConnState::Lost);
-                tab.remote.busy.set(Some("Non connecté".into()));
+                tab.remote
+                    .busy
+                    .set(Some(tr!("Non connecté", "Not connected").into()));
                 fire("session_close", json!({ "id": id }));
                 if e.kind == "cancelled" {
-                    ctx.log("error", format!("Connexion annulée : {e}"));
+                    ctx.log(
+                        "error",
+                        trf!("Connexion annulée : {e}", "Connection cancelled: {e}"),
+                    );
                     return;
                 }
-                ctx.log("error", format!("Échec de la connexion : {e}"));
+                ctx.log(
+                    "error",
+                    trf!("Échec de la connexion : {e}", "Connection failed: {e}"),
+                );
                 let kind = if e.kind == "auth" {
-                    "d'authentification"
+                    tr!("d'authentification", "Authentication")
                 } else {
-                    "de connexion"
+                    tr!("de connexion", "Connection")
                 };
                 alert(
-                    &format!("Erreur {kind}"),
+                    &trf!("Erreur {kind}", "{kind} error"),
                     &format!("{}\n\n{e}", site.label()),
                     true,
                 )
@@ -384,7 +412,9 @@ pub fn disconnect(ctx: Ctx, tab: Tab) {
     tab.remote.path.set(String::new());
     tab.remote.path_text.set(String::new());
     tab.remote.clear_selection();
-    tab.remote.busy.set(Some("Non connecté".into()));
+    tab.remote
+        .busy
+        .set(Some(tr!("Non connecté", "Not connected").into()));
     tab.remote_tree.clear();
 }
 
@@ -418,7 +448,7 @@ pub fn poll_sessions(ctx: Ctx) {
                 };
                 if tab.conn.get_untracked() != state {
                     if state == ConnState::Lost {
-                        ctx.log("error", "Connexion perdue. Utilisez « Reconnecter » (Ctrl+R) ou poursuivez : la reconnexion est automatique.");
+                        ctx.log("error", tr!("Connexion perdue. Utilisez « Reconnecter » (Ctrl+R) ou poursuivez : la reconnexion est automatique.", "Connection lost. Use \"Reconnect\" (Ctrl+R) or carry on: reconnection is automatic."));
                     }
                     tab.conn.set(state);
                 }
@@ -451,9 +481,10 @@ pub fn navigate_remote(ctx: Ctx, tab: Tab, path: String, refresh: bool, quiet: b
         show_listing(tab, &path, cached);
     }
     if !quiet {
-        tab.remote
-            .busy
-            .set(Some(format!("Lecture du dossier {path}…")));
+        tab.remote.busy.set(Some(trf!(
+            "Lecture du dossier {path}…",
+            "Reading folder {path}…"
+        )));
         ctx.log("command", format!("LIST {path}"));
     }
     spawn_local(async move {
@@ -473,7 +504,10 @@ pub fn navigate_remote(ctx: Ctx, tab: Tab, path: String, refresh: bool, quiet: b
                     if !quiet {
                         ctx.log(
                             "status",
-                            format!("Contenu de « {path} » affiché ({n} éléments)"),
+                            trf!(
+                                "Contenu de « {path} » affiché ({n} éléments)",
+                                "Listing of \"{path}\" displayed ({n} items)"
+                            ),
                         );
                     }
                 }
@@ -482,9 +516,17 @@ pub fn navigate_remote(ctx: Ctx, tab: Tab, path: String, refresh: bool, quiet: b
                 if tab.session.get_untracked() != Some(sid) {
                     return;
                 }
-                ctx.log("error", format!("Impossible de lister {path} : {e}"));
+                ctx.log(
+                    "error",
+                    trf!(
+                        "Impossible de lister {path} : {e}",
+                        "Unable to list {path}: {e}"
+                    ),
+                );
                 if token == tab.nav_token.get_value() {
-                    tab.remote.busy.set(Some(format!("Erreur : {e}")));
+                    tab.remote
+                        .busy
+                        .set(Some(trf!("Erreur : {e}", "Error: {e}")));
                     tab.remote.path_text.set(tab.remote.path.get_untracked());
                 }
                 if e.kind == "closed" {
@@ -686,8 +728,16 @@ fn remote_op(ctx: Ctx, tab: Tab, description: String, cmd: &'static str, mut arg
     ctx.log("command", description.clone());
     spawn_local(async move {
         if let Err(e) = call::<Value>(cmd, args).await {
-            ctx.log("error", format!("{description} : échec — {e}"));
-            alert("Erreur", &format!("{description}\n\n{e}"), true).await;
+            ctx.log(
+                "error",
+                trf!("{description} : échec — {e}", "{description}: failed — {e}"),
+            );
+            alert(
+                tr!("Erreur", "Error"),
+                &format!("{description}\n\n{e}"),
+                true,
+            )
+            .await;
         }
         if tab.session.get_untracked() == Some(sid) {
             navigate_remote(ctx, tab, tab.remote.path.get_untracked(), true, true);
@@ -710,9 +760,9 @@ pub fn remote_mkdir(ctx: Ctx, tab: Tab) {
     spawn_local(async move {
         let cur = tab.remote.path.get_untracked();
         let Some(name) = ask_text(
-            "Créer un dossier",
-            &format!("Nouveau dossier dans {cur} :"),
-            "nouveau dossier",
+            tr!("Créer un dossier", "Create folder"),
+            &trf!("Nouveau dossier dans {cur} :", "New folder in {cur}:"),
+            tr!("nouveau dossier", "new folder"),
         )
         .await
         else {
@@ -722,7 +772,7 @@ pub fn remote_mkdir(ctx: Ctx, tab: Tab) {
         remote_op(
             ctx,
             tab,
-            format!("Création de {p}"),
+            trf!("Création de {p}", "Creating {p}"),
             "remote_mkdir",
             json!({ "path": p }),
         );
@@ -736,9 +786,9 @@ pub fn remote_touch(ctx: Ctx, tab: Tab) {
     spawn_local(async move {
         let cur = tab.remote.path.get_untracked();
         let Some(name) = ask_text(
-            "Créer un fichier vide",
-            &format!("Nouveau fichier dans {cur} :"),
-            "nouveau.txt",
+            tr!("Créer un fichier vide", "Create empty file"),
+            &trf!("Nouveau fichier dans {cur} :", "New file in {cur}:"),
+            tr!("nouveau.txt", "new.txt"),
         )
         .await
         else {
@@ -748,7 +798,7 @@ pub fn remote_touch(ctx: Ctx, tab: Tab) {
         remote_op(
             ctx,
             tab,
-            format!("Création de {p}"),
+            trf!("Création de {p}", "Creating {p}"),
             "remote_touch",
             json!({ "path": p }),
         );
@@ -763,7 +813,13 @@ pub fn remote_rename(ctx: Ctx, tab: Tab) {
     let old = items[0].path.clone();
     spawn_local(async move {
         let base = rbasename(&old).to_string();
-        let Some(new) = ask_text("Renommer", "Nouveau nom :", &base).await else {
+        let Some(new) = ask_text(
+            tr!("Renommer", "Rename"),
+            tr!("Nouveau nom :", "New name:"),
+            &base,
+        )
+        .await
+        else {
             return;
         };
         if new == base {
@@ -776,7 +832,7 @@ pub fn remote_rename(ctx: Ctx, tab: Tab) {
         remote_op(
             ctx,
             tab,
-            format!("Renommage {old} → {dst}"),
+            trf!("Renommage {old} → {dst}", "Renaming {old} → {dst}"),
             "remote_rename",
             json!({ "src": old, "dst": dst }),
         );
@@ -790,16 +846,22 @@ pub fn remote_delete(ctx: Ctx, tab: Tab) {
     }
     spawn_local(async move {
         let dirs = items.iter().filter(|i| i.is_dir).count();
-        let mut msg = format!(
+        let mut msg = trf!(
             "Supprimer définitivement {} élément(s) du serveur",
+            "Permanently delete {} item(s) from the server",
             items.len()
         );
         if dirs > 0 {
-            msg += &format!(", dont {dirs} dossier(s) et tout leur contenu ?");
+            msg += &trf!(
+                ", dont {dirs} dossier(s) et tout leur contenu ?",
+                ", including {dirs} folder(s) and all their contents?"
+            );
         } else {
-            msg += " ?";
+            msg += tr!(" ?", "?");
         }
-        if ctx.settings.get_untracked().confirm_delete && !confirm("Suppression", &msg).await {
+        if ctx.settings.get_untracked().confirm_delete
+            && !confirm(tr!("Suppression", "Delete"), &msg).await
+        {
             return;
         }
         tab.cache.update_value(|c| {
@@ -812,7 +874,7 @@ pub fn remote_delete(ctx: Ctx, tab: Tab) {
         remote_op(
             ctx,
             tab,
-            format!("Suppression de {n} élément(s)"),
+            trf!("Suppression de {n} élément(s)", "Deleting {n} item(s)"),
             "remote_delete",
             json!({ "items": items }),
         );
@@ -828,7 +890,7 @@ pub fn remote_chmod(ctx: Ctx, tab: Tab) {
         let title = if items.len() == 1 {
             rbasename(&items[0].path).to_string()
         } else {
-            format!("{} éléments", items.len())
+            trf!("{} éléments", "{} items", items.len())
         };
         let has_dirs = items.iter().any(|i| i.is_dir);
         let Some((mode, recursive)) = chmod_dialog(&title, items[0].mode, has_dirs).await else {
@@ -838,7 +900,10 @@ pub fn remote_chmod(ctx: Ctx, tab: Tab) {
         remote_op(
             ctx,
             tab,
-            format!("chmod {mode:o} sur {n} élément(s)"),
+            trf!(
+                "chmod {mode:o} sur {n} élément(s)",
+                "chmod {mode:o} on {n} item(s)"
+            ),
             "remote_chmod",
             json!({ "items": items, "mode": mode, "recursive": recursive }),
         );
@@ -865,7 +930,10 @@ pub fn remote_move(ctx: Ctx, tab: Tab, items: Vec<RemoteItem>, target: String) {
     remote_op(
         ctx,
         tab,
-        format!("Déplacement de {n} élément(s) vers {target}"),
+        trf!(
+            "Déplacement de {n} élément(s) vers {target}",
+            "Moving {n} item(s) to {target}"
+        ),
         "remote_move",
         json!({ "items": items, "target": target }),
     );
@@ -886,8 +954,9 @@ pub fn upload(ctx: Ctx, tab: Tab, paths: Vec<String>, remote_dir: Option<String>
     let dir = remote_dir.unwrap_or_else(|| tab.remote.path.get_untracked());
     ctx.log(
         "status",
-        format!(
+        trf!(
             "Préparation de l'envoi de {} élément(s) vers {dir}…",
+            "Preparing upload of {} item(s) to {dir}…",
             paths.len()
         ),
     );
@@ -902,7 +971,13 @@ pub fn upload(ctx: Ctx, tab: Tab, paths: Vec<String>, remote_dir: Option<String>
                 enqueued(ctx, &r);
                 schedule_refresh(ctx, tab, &dir); // les dossiers créés apparaissent immédiatement
             }
-            Err(e) => ctx.log("error", format!("Préparation de l'envoi impossible : {e}")),
+            Err(e) => ctx.log(
+                "error",
+                trf!(
+                    "Préparation de l'envoi impossible : {e}",
+                    "Unable to prepare upload: {e}"
+                ),
+            ),
         }
     });
 }
@@ -918,7 +993,10 @@ pub fn download(ctx: Ctx, tab: Tab, items: Vec<RemoteItem>, local_dir: Option<St
     if items.iter().any(|i| i.is_dir) {
         ctx.log(
             "status",
-            format!("Analyse des dossiers à télécharger vers {dir}…"),
+            trf!(
+                "Analyse des dossiers à télécharger vers {dir}…",
+                "Scanning folders to download to {dir}…"
+            ),
         );
     }
     spawn_local(async move {
@@ -936,7 +1014,10 @@ pub fn download(ctx: Ctx, tab: Tab, items: Vec<RemoteItem>, local_dir: Option<St
             }
             Err(e) => ctx.log(
                 "error",
-                format!("Préparation du téléchargement impossible : {e}"),
+                trf!(
+                    "Préparation du téléchargement impossible : {e}",
+                    "Unable to prepare download: {e}"
+                ),
             ),
         }
     });
@@ -944,12 +1025,13 @@ pub fn download(ctx: Ctx, tab: Tab, items: Vec<RemoteItem>, local_dir: Option<St
 
 fn enqueued(ctx: Ctx, r: &EnqueueResult) {
     if r.count == 0 {
-        ctx.log("status", "Rien à transférer");
+        ctx.log("status", tr!("Rien à transférer", "Nothing to transfer"));
     } else {
         ctx.log(
             "status",
-            format!(
+            trf!(
                 "{} fichier(s) ajouté(s) à la file ({:.1} Mio)",
+                "{} file(s) added to the queue ({:.1} MiB)",
                 r.count,
                 r.total as f64 / 1048576.0
             ),
@@ -994,7 +1076,10 @@ pub fn save_settings(ctx: Ctx) {
         if let Err(e) = call::<Value>("settings_set", json!({ "settings": settings })).await {
             ctx.log(
                 "error",
-                format!("Enregistrement des paramètres impossible : {e}"),
+                trf!(
+                    "Enregistrement des paramètres impossible : {e}",
+                    "Unable to save settings: {e}"
+                ),
             );
         }
     });
@@ -1006,8 +1091,11 @@ pub fn quit(ctx: Ctx) {
         let n = s.active + s.queued;
         if n > 0
             && !confirm(
-                "Quitter",
-                &format!("{n} transfert(s) en cours ou en attente. Quitter quand même ?"),
+                tr!("Quitter", "Quit"),
+                &trf!(
+                    "{n} transfert(s) en cours ou en attente. Quitter quand même ?",
+                    "{n} transfer(s) in progress or queued. Quit anyway?"
+                ),
             )
             .await
         {

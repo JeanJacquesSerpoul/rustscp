@@ -6,6 +6,7 @@ use std::sync::{LazyLock, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use hmac::{Hmac, Mac};
+use rustscp_shared::{tr, trf};
 use sha1::Sha1;
 
 pub const INTERVAL: u64 = 30;
@@ -27,11 +28,17 @@ pub fn decode_secret(secret: &str) -> Result<Vec<u8>, String> {
         .trim_end_matches('=')
         .to_string();
     if clean.is_empty() {
-        return Err("secret vide".into());
+        return Err(tr!("secret vide", "empty secret").into());
     }
     data_encoding::BASE32_NOPAD
         .decode(clean.as_bytes())
-        .map_err(|_| "secret invalide (base32 attendu)".to_string())
+        .map_err(|_| {
+            tr!(
+                "secret invalide (base32 attendu)",
+                "invalid secret (base32 expected)"
+            )
+            .to_string()
+        })
 }
 
 pub fn code_at(key: &[u8], counter: u64) -> String {
@@ -84,8 +91,9 @@ pub async fn next_code(key: &str, secret: &str, log: impl Fn(String)) -> Result<
             }
             INTERVAL - t % INTERVAL
         };
-        log(format!(
-            "Code TOTP courant déjà utilisé, attente du suivant ({wait} s)…"
+        log(trf!(
+            "Code TOTP courant déjà utilisé, attente du suivant ({wait} s)…",
+            "Current TOTP code already used, waiting for the next one ({wait} s)…"
         ));
         tokio::time::sleep(std::time::Duration::from_millis(wait * 1000 + 200)).await;
     }

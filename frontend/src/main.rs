@@ -14,5 +14,18 @@ mod state;
 
 fn main() {
     console_error_panic_hook::set_once();
-    leptos::mount::mount_to_body(app::App);
+    // la langue (choisie par le cœur d'après les réglages ou la locale) doit être
+    // connue avant le premier rendu (exécuteur de Leptos pas encore initialisé ici)
+    wasm_bindgen_futures::spawn_local(async {
+        let info = api::call::<state::AppInfo>("app_info", serde_json::json!({})).await;
+        let lang = match info.map(|i| i.lang) {
+            Ok(code) if code == "fr" => rustscp_shared::Lang::Fr,
+            _ => rustscp_shared::Lang::En,
+        };
+        rustscp_shared::set_lang(lang);
+        if let Some(root) = fmt::window().document().and_then(|d| d.document_element()) {
+            let _ = root.set_attribute("lang", lang.code());
+        }
+        leptos::mount::mount_to_body(app::App);
+    });
 }

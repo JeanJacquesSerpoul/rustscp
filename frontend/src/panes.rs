@@ -23,6 +23,7 @@ use crate::layout::{
 use crate::state::{
     Col, ConnState, Ctx, DragPayload, DragState, MenuItem, MenuState, PARENT, Pane, Side, Tab, ctx,
 };
+use rustscp_shared::{tr, trf};
 
 pub const ROW_H: f64 = 22.0;
 pub const HEADER_H: f64 = 24.0;
@@ -54,9 +55,9 @@ pub fn PaneView(tab: Tab, side: Side) -> impl IntoView {
             || (tab.session.get().is_some() && tab.conn.get() != ConnState::Connecting)
     };
     let title = if side == Side::Local {
-        "Site local :"
+        tr!("Site local :", "Local site:")
     } else {
-        "Site distant :"
+        tr!("Site distant :", "Remote site:")
     };
     let datalist_id = format!("complete-{}-{}", side_name(side), tab.id);
     let completions = RwSignal::new(Vec::<String>::new());
@@ -106,7 +107,7 @@ pub fn PaneView(tab: Tab, side: Side) -> impl IntoView {
             return b;
         }
         if side == Side::Remote && !connected() {
-            return "Non connecté".into();
+            return tr!("Non connecté", "Not connected").into();
         }
         let sel = pane.selected.get();
         pane.rows.with(|rows| {
@@ -116,8 +117,9 @@ pub fn PaneView(tab: Tab, side: Side) -> impl IntoView {
                 .collect();
             if !chosen.is_empty() {
                 let size: u64 = chosen.iter().filter(|e| !e.is_dir).map(|e| e.size).sum();
-                format!(
+                trf!(
                     "{} élément(s) sélectionné(s), {}",
+                    "{} item(s) selected, {}",
                     chosen.len(),
                     human_size(size)
                 )
@@ -125,8 +127,9 @@ pub fn PaneView(tab: Tab, side: Side) -> impl IntoView {
                 let files: Vec<&Entry> = rows.iter().filter(|e| !e.is_dir).collect();
                 let dirs = rows.iter().filter(|e| e.is_dir && e.name != PARENT).count();
                 let total: u64 = files.iter().map(|e| e.size).sum();
-                format!(
+                trf!(
                     "{} fichier(s) et {dirs} dossier(s). Taille totale : {}",
+                    "{} file(s) and {dirs} folder(s). Total size: {}",
                     files.len(),
                     human_size(total)
                 )
@@ -154,11 +157,11 @@ pub fn PaneView(tab: Tab, side: Side) -> impl IntoView {
                 <datalist id=datalist_id>
                     {move || completions.get().into_iter().map(|p| view! { <option value=p></option> }).collect_view()}
                 </datalist>
-                <button class="icon-btn" title="Dossier parent (Retour arrière)" disabled=move || !connected()
+                <button class="icon-btn" title=tr!("Dossier parent (Retour arrière)", "Parent folder (Backspace)") disabled=move || !connected()
                     on:click=move |_| match side { Side::Local => act::local_up(c, tab), Side::Remote => act::remote_up(c, tab) }>
                     {icon("up")}
                 </button>
-                <button class="icon-btn" title="Dossier personnel" disabled=move || !connected()
+                <button class="icon-btn" title=tr!("Dossier personnel", "Home folder") disabled=move || !connected()
                     on:click=move |_| match side {
                         Side::Local => act::navigate_local(c, tab, c.info.get_untracked().home),
                         Side::Remote => act::navigate_remote(c, tab, tab.home.get_untracked(), false, false),
@@ -177,15 +180,15 @@ pub fn PaneView(tab: Tab, side: Side) -> impl IntoView {
                             view! { <div class="spinner"></div><p>{move || pane.busy.get().unwrap_or_default()}</p> }.into_any()
                         } else {
                             view! {
-                                <p>"Non connecté à un serveur."</p>
-                                <p class="muted">"Utilisez la connexion rapide ou le gestionnaire de sites (Ctrl+S)."</p>
+                                <p>{tr!("Non connecté à un serveur.", "Not connected to a server.")}</p>
+                                <p class="muted">{tr!("Utilisez la connexion rapide ou le gestionnaire de sites (Ctrl+S).", "Use quickconnect or the Site Manager (Ctrl+S).")}</p>
                             }.into_any()
                         }}
                     </div>
                 }>
                     <div class="filter-bar">
                         {icon("search")}
-                        <input type="search" placeholder="Filtrer (texte ou motif *.log)…" spellcheck="false"
+                        <input type="search" placeholder=tr!("Filtrer (texte ou motif *.log)…", "Filter (text or pattern *.log)…") spellcheck="false"
                             prop:value=pane.filter on:input=move |ev| pane.filter.set(event_target_value(&ev))/>
                     </div>
                     <FileList tab=tab side=side/>
@@ -218,12 +221,12 @@ fn cell_text(col: Col, e: &Entry) -> String {
         }
         Col::Type => {
             let base = if e.is_dir {
-                "Dossier".to_string()
+                tr!("Dossier", "Folder").to_string()
             } else {
                 file_type_for(&e.name)
             };
             if e.is_link {
-                format!("{base} (lien)")
+                trf!("{base} (lien)", "{base} (link)")
             } else {
                 base
             }
@@ -277,7 +280,7 @@ fn drag_payload(tab: Tab, side: Side) -> Option<(DragPayload, String)> {
             label = if paths.len() == 1 {
                 rustscp_shared::util::rbasename(&paths[0]).to_string()
             } else {
-                format!("{} éléments", paths.len())
+                trf!("{} éléments", "{} items", paths.len())
             };
             DragPayload::Local { tab: tab.id, paths }
         }
@@ -289,7 +292,7 @@ fn drag_payload(tab: Tab, side: Side) -> Option<(DragPayload, String)> {
             label = if items.len() == 1 {
                 rustscp_shared::util::rbasename(&items[0].path).to_string()
             } else {
-                format!("{} éléments", items.len())
+                trf!("{} éléments", "{} items", items.len())
             };
             DragPayload::Remote { tab: tab.id, items }
         }
@@ -313,34 +316,44 @@ pub fn context_menu(c: Ctx, tab: Tab, side: Side, x: f64, y: f64) {
                 paths.join("\n")
             };
             let mut v = vec![
-                MenuItem::action("Envoyer", "upload", move || act::upload_selected(c, tab))
-                    .enabled(n > 0 && tab.connected())
-                    .shortcut("Ctrl+U"),
+                MenuItem::action(tr!("Envoyer", "Upload"), "upload", move || {
+                    act::upload_selected(c, tab)
+                })
+                .enabled(n > 0 && tab.connected())
+                .shortcut("Ctrl+U"),
             ];
             if single_file {
-                v.push(MenuItem::action("Ouvrir", "edit", move || {
+                v.push(MenuItem::action(tr!("Ouvrir", "Open"), "edit", move || {
                     crate::api::fire("local_open", json!({ "path": first }))
                 }));
             }
             v.extend([
                 MenuItem::Separator,
-                MenuItem::action("Créer un dossier…", "folder-new", move || {
-                    act::local_mkdir(c, tab)
-                }),
-                MenuItem::action("Renommer…", "rename", move || act::local_rename(c, tab))
-                    .enabled(n == 1)
-                    .shortcut("F2"),
-                MenuItem::action("Mettre à la corbeille", "trash", move || {
-                    act::local_trash(c, tab)
+                MenuItem::action(
+                    tr!("Créer un dossier…", "Create folder…"),
+                    "folder-new",
+                    move || act::local_mkdir(c, tab),
+                ),
+                MenuItem::action(tr!("Renommer…", "Rename…"), "rename", move || {
+                    act::local_rename(c, tab)
                 })
+                .enabled(n == 1)
+                .shortcut("F2"),
+                MenuItem::action(
+                    tr!("Mettre à la corbeille", "Move to trash"),
+                    "trash",
+                    move || act::local_trash(c, tab),
+                )
                 .enabled(n > 0)
-                .shortcut("Suppr"),
+                .shortcut(tr!("Suppr", "Del")),
                 MenuItem::Separator,
-                MenuItem::action("Copier le chemin", "copy", move || {
+                MenuItem::action(tr!("Copier le chemin", "Copy path"), "copy", move || {
                     act::copy_text(copy.clone())
                 }),
-                MenuItem::action("Actualiser", "refresh", move || act::refresh_local(c, tab))
-                    .shortcut("F5"),
+                MenuItem::action(tr!("Actualiser", "Refresh"), "refresh", move || {
+                    act::refresh_local(c, tab)
+                })
+                .shortcut("F5"),
             ]);
             v
         }
@@ -360,7 +373,7 @@ pub fn context_menu(c: Ctx, tab: Tab, side: Side, x: f64, y: f64) {
             };
             let first = items.first().cloned();
             let mut v = vec![
-                MenuItem::action("Télécharger", "download", move || {
+                MenuItem::action(tr!("Télécharger", "Download"), "download", move || {
                     act::download_selected(c, tab)
                 })
                 .enabled(n > 0)
@@ -368,35 +381,49 @@ pub fn context_menu(c: Ctx, tab: Tab, side: Side, x: f64, y: f64) {
             ];
             if single_file {
                 let item = first.clone().unwrap();
-                v.push(MenuItem::action("Afficher / Éditer", "edit", move || {
-                    act::edit_remote(c, tab, item.clone())
-                }));
+                v.push(MenuItem::action(
+                    tr!("Afficher / Éditer", "View / Edit"),
+                    "edit",
+                    move || act::edit_remote(c, tab, item.clone()),
+                ));
             }
             v.extend([
                 MenuItem::Separator,
-                MenuItem::action("Créer un dossier…", "folder-new", move || {
-                    act::remote_mkdir(c, tab)
-                })
+                MenuItem::action(
+                    tr!("Créer un dossier…", "Create folder…"),
+                    "folder-new",
+                    move || act::remote_mkdir(c, tab),
+                )
                 .shortcut("F7"),
-                MenuItem::action("Créer un fichier vide…", "file-new", move || {
-                    act::remote_touch(c, tab)
-                }),
-                MenuItem::action("Renommer…", "rename", move || act::remote_rename(c, tab))
-                    .enabled(n == 1)
-                    .shortcut("F2"),
-                MenuItem::action("Supprimer", "trash", move || act::remote_delete(c, tab))
-                    .enabled(n > 0)
-                    .shortcut("Suppr"),
-                MenuItem::action("Droits d'accès (chmod)…", "lock", move || {
-                    act::remote_chmod(c, tab)
+                MenuItem::action(
+                    tr!("Créer un fichier vide…", "Create empty file…"),
+                    "file-new",
+                    move || act::remote_touch(c, tab),
+                ),
+                MenuItem::action(tr!("Renommer…", "Rename…"), "rename", move || {
+                    act::remote_rename(c, tab)
                 })
+                .enabled(n == 1)
+                .shortcut("F2"),
+                MenuItem::action(tr!("Supprimer", "Delete"), "trash", move || {
+                    act::remote_delete(c, tab)
+                })
+                .enabled(n > 0)
+                .shortcut(tr!("Suppr", "Del")),
+                MenuItem::action(
+                    tr!("Droits d'accès (chmod)…", "Permissions (chmod)…"),
+                    "lock",
+                    move || act::remote_chmod(c, tab),
+                )
                 .enabled(n > 0),
                 MenuItem::Separator,
-                MenuItem::action("Copier le chemin", "copy", move || {
+                MenuItem::action(tr!("Copier le chemin", "Copy path"), "copy", move || {
                     act::copy_text(copy.clone())
                 }),
-                MenuItem::action("Actualiser", "refresh", move || act::refresh_remote(c, tab))
-                    .shortcut("F5"),
+                MenuItem::action(tr!("Actualiser", "Refresh"), "refresh", move || {
+                    act::refresh_remote(c, tab)
+                })
+                .shortcut("F5"),
             ]);
             v
         }

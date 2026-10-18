@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-use rustscp_shared::{SECRET_KINDS, SitesFile};
+use rustscp_shared::{SECRET_KINDS, SitesFile, tr};
 
 use crate::config::{config_dir, read_json, write_json_atomic};
 
@@ -29,7 +29,6 @@ pub fn save_sites(file: &SitesFile) -> std::io::Result<()> {
 pub struct SecretStore {
     memory: Mutex<HashMap<String, String>>,
     pub available: bool,
-    pub backend_name: String,
 }
 
 const SERVICE: &str = "rustscp";
@@ -57,11 +56,6 @@ impl SecretStore {
         SecretStore {
             memory: Mutex::new(HashMap::new()),
             available,
-            backend_name: if available {
-                "trousseau système (Secret Service)".into()
-            } else {
-                "mémoire (non persistant)".into()
-            },
         }
     }
 
@@ -70,7 +64,18 @@ impl SecretStore {
         SecretStore {
             memory: Mutex::new(HashMap::new()),
             available: false,
-            backend_name: "mémoire".into(),
+        }
+    }
+
+    /// Où les secrets sont conservés (pour l'affichage).
+    pub fn backend_name(&self) -> &'static str {
+        if self.available {
+            tr!(
+                "trousseau système (Secret Service)",
+                "system keyring (Secret Service)"
+            )
+        } else {
+            tr!("mémoire (non persistant)", "memory (not persistent)")
         }
     }
 

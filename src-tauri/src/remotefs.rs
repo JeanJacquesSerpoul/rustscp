@@ -13,6 +13,7 @@ use rustscp_shared::util::{
 use crate::error::{Error, Result};
 use crate::sftp::attrs_to_entry;
 use crate::ssh::{Session, shell_quote as q};
+use rustscp_shared::trf;
 
 fn type_mode(t: &str) -> u32 {
     match t {
@@ -32,7 +33,7 @@ impl Session {
         if rc != 0 {
             let msg = String::from_utf8_lossy(&err).trim().to_string();
             return Err(Error::Remote(if msg.is_empty() {
-                format!("code de sortie {rc}")
+                trf!("code de sortie {rc}", "exit code {rc}")
             } else {
                 msg
             }));
@@ -210,8 +211,9 @@ impl Session {
                     match s.stat(&cur).await? {
                         Some(a) if a.permissions.unwrap_or(0) & 0o170000 == S_IFDIR => break,
                         Some(_) => {
-                            return Err(Error::Remote(format!(
-                                "{cur} existe et n'est pas un dossier"
+                            return Err(Error::Remote(trf!(
+                                "{cur} existe et n'est pas un dossier",
+                                "{cur} exists and is not a directory"
                             )));
                         }
                         None => {
@@ -252,10 +254,9 @@ impl Session {
     pub async fn rename(&self, src: &str, dst: &str) -> Result<()> {
         let (conn, sftp) = self.browse_sftp().await?;
         if let Some(s) = sftp {
-            let r = s
-                .rename(src, dst)
-                .await
-                .map_err(|e| Error::Remote(format!("Renommage impossible : {e}")));
+            let r = s.rename(src, dst).await.map_err(|e| {
+                Error::Remote(trf!("Renommage impossible : {e}", "Rename failed: {e}"))
+            });
             if s.is_closed() {
                 self.reset_browse(&conn).await;
             }
@@ -335,7 +336,12 @@ impl Session {
             if s.is_closed() {
                 self.reset_browse(&conn).await;
             }
-            return r.map_err(|e| Error::Remote(format!("Suppression de {path} impossible : {e}")));
+            return r.map_err(|e| {
+                Error::Remote(trf!(
+                    "Suppression de {path} impossible : {e}",
+                    "Unable to delete {path}: {e}"
+                ))
+            });
         }
         let flag = if is_dir { "rf" } else { "f" };
         self.sh(

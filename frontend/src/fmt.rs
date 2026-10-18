@@ -7,15 +7,18 @@ pub fn format_mtime(ts: i64) -> String {
         return String::new();
     }
     let d = js_sys::Date::new(&wasm_bindgen::JsValue::from_f64(ts as f64 * 1000.0));
-    format!(
-        "{:02}/{:02}/{:04} {:02}:{:02}:{:02}",
-        d.get_date(),
-        d.get_month() + 1,
-        d.get_full_year(),
+    let (day, month, year) = (d.get_date(), d.get_month() + 1, d.get_full_year());
+    let time = format!(
+        "{:02}:{:02}:{:02}",
         d.get_hours(),
         d.get_minutes(),
         d.get_seconds()
-    )
+    );
+    if rustscp_shared::i18n::is_fr() {
+        format!("{day:02}/{month:02}/{year:04} {time}")
+    } else {
+        format!("{year:04}-{month:02}-{day:02} {time}")
+    }
 }
 
 pub fn now_hms() -> String {

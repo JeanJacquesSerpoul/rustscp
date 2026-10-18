@@ -282,6 +282,8 @@ async fn transfers_roundtrip(protocol: &str) {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn integration() {
+    // les vérifications portent sur les messages en français
+    rustscp_shared::set_lang(rustscp_shared::Lang::Fr);
     if !server_up() {
         // en CI, l'absence du serveur est une erreur et non un test ignoré
         assert!(

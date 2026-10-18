@@ -1,5 +1,6 @@
 //! Pont vers le cœur Tauri : commandes (invoke) et événements.
 
+use rustscp_shared::tr;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -44,7 +45,7 @@ fn to_error(err: JsValue) -> ApiError {
         kind: "other".into(),
         message: js_sys::JSON::stringify(&err)
             .map(String::from)
-            .unwrap_or_else(|_| "erreur inconnue".into()),
+            .unwrap_or_else(|_| tr!("erreur inconnue", "unknown error").into()),
     })
 }
 

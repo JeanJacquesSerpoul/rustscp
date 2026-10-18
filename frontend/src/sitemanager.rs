@@ -7,9 +7,8 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 use rustscp_shared::util::parse_otp_secret;
 use rustscp_shared::{
-    AUTH_CHOICES, OTP_ASK, OTP_SECRET, PROTO_SCP, PROTO_SFTP, SECRET_OTP, SECRET_PASSPHRASE,
-    SECRET_PASSWORD, Site, SitesFile, TotpPreview, auth_uses_key, auth_uses_otp,
-    auth_uses_password,
+    OTP_ASK, OTP_SECRET, PROTO_SCP, PROTO_SFTP, SECRET_OTP, SECRET_PASSPHRASE, SECRET_PASSWORD,
+    Site, SitesFile, TotpPreview, auth_choices, auth_uses_key, auth_uses_otp, auth_uses_password,
 };
 use serde_json::{Value, json};
 
@@ -18,6 +17,7 @@ use crate::dialogs::{Modal, alert, ask_text, confirm};
 use crate::fmt::random_id;
 use crate::icons::icon;
 use crate::state::ctx;
+use rustscp_shared::{tr, trf};
 
 #[derive(Clone, PartialEq)]
 enum Selection {
@@ -46,7 +46,7 @@ fn secret_input(
             <input type=move || if shown.get() { "text" } else { "password" } placeholder=placeholder
                 autocomplete="off" disabled=move || !enabled.get()
                 prop:value=value on:input=move |ev| value.set(event_target_value(&ev))/>
-            <button type="button" class="icon-btn" title="Afficher / masquer" disabled=move || !enabled.get()
+            <button type="button" class="icon-btn" title=tr!("Afficher / masquer", "Show / hide") disabled=move || !enabled.get()
                 on:click=move |_| shown.update(|s| *s = !*s)>
                 {move || if shown.get() { icon("eye-off").into_any() } else { icon("eye").into_any() }}
             </button>
@@ -127,7 +127,7 @@ pub fn SiteManager(dialog_id: u64, select: Option<String>) -> impl IntoView {
         site.local_dir = site.local_dir.trim().to_string();
         if site.name.is_empty() {
             site.name = if site.host.is_empty() {
-                "Sans nom".into()
+                tr!("Sans nom", "Untitled").into()
             } else {
                 site.host.clone()
             };
@@ -174,8 +174,8 @@ pub fn SiteManager(dialog_id: u64, select: Option<String>) -> impl IntoView {
                     if !stored && !warned.try_get_value().unwrap_or(true) {
                         warned.try_set_value(true);
                         alert(
-                            "Trousseau indisponible",
-                            "Aucun trousseau système n'est disponible : les secrets ne seront conservés que pendant cette session.",
+                            tr!("Trousseau indisponible", "Keyring unavailable"),
+                            tr!("Aucun trousseau système n'est disponible : les secrets ne seront conservés que pendant cette session.", "No system keyring is available: secrets will only be kept for this session."),
                             false,
                         )
                         .await;
@@ -230,7 +230,14 @@ pub fn SiteManager(dialog_id: u64, select: Option<String>) -> impl IntoView {
                         true,
                     )
                 }
-                Err(_) => ("Secret invalide (base32 attendu)".into(), false),
+                Err(_) => (
+                    tr!(
+                        "Secret invalide (base32 attendu)",
+                        "Invalid secret (base32 expected)"
+                    )
+                    .into(),
+                    false,
+                ),
             };
             preview.try_set(value);
         });
@@ -254,7 +261,7 @@ pub fn SiteManager(dialog_id: u64, select: Option<String>) -> impl IntoView {
         commit();
         let site = Site {
             id: random_id(),
-            name: "Nouveau site".into(),
+            name: tr!("Nouveau site", "New site").into(),
             folder: target_folder(),
             user: c.info.get_untracked().user,
             ..Default::default()
@@ -272,8 +279,12 @@ pub fn SiteManager(dialog_id: u64, select: Option<String>) -> impl IntoView {
     };
     let new_folder = move |_| {
         spawn_local(async move {
-            let Some(name) =
-                ask_text("Nouveau dossier", "Nom du dossier :", "Nouveau dossier").await
+            let Some(name) = ask_text(
+                tr!("Nouveau dossier", "New folder"),
+                tr!("Nom du dossier :", "Folder name:"),
+                tr!("Nouveau dossier", "New folder"),
+            )
+            .await
             else {
                 return;
             };
@@ -289,7 +300,7 @@ pub fn SiteManager(dialog_id: u64, select: Option<String>) -> impl IntoView {
         commit();
         let mut clone = form.get_untracked();
         clone.id = random_id();
-        clone.name = format!("{} (copie)", clone.name);
+        clone.name = trf!("{} (copie)", "{} (copy)", clone.name);
         let dst = clone.id.clone();
         draft.update(|d| d.sites.push(clone));
         spawn_local(async move {
@@ -304,7 +315,7 @@ pub fn SiteManager(dialog_id: u64, select: Option<String>) -> impl IntoView {
         spawn_local(async move {
             match sel {
                 Selection::Folder(name) => {
-                    if !confirm("Supprimer", &format!("Supprimer le dossier « {name} » ? Ses sites seront déplacés à la racine."))
+                    if !confirm(tr!("Supprimer", "Delete"), &trf!("Supprimer le dossier « {name} » ? Ses sites seront déplacés à la racine.", "Delete folder \"{name}\"? Its sites will be moved to the root."))
                         .await
                     {
                         return;
@@ -324,8 +335,11 @@ pub fn SiteManager(dialog_id: u64, select: Option<String>) -> impl IntoView {
                 Selection::Site(id) => {
                     let name = form.with_untracked(|f| f.name.clone());
                     if !confirm(
-                        "Supprimer",
-                        &format!("Supprimer le site « {name} » et ses secrets ?"),
+                        tr!("Supprimer", "Delete"),
+                        &trf!(
+                            "Supprimer le site « {name} » et ses secrets ?",
+                            "Delete site \"{name}\" and its secrets?"
+                        ),
                     )
                     .await
                     {
@@ -353,7 +367,10 @@ pub fn SiteManager(dialog_id: u64, select: Option<String>) -> impl IntoView {
             if let Err(e) = call::<Value>("sites_set", json!({ "file": file })).await {
                 c.log(
                     "error",
-                    format!("Enregistrement des sites impossible : {e}"),
+                    trf!(
+                        "Enregistrement des sites impossible : {e}",
+                        "Unable to save sites: {e}"
+                    ),
                 );
             }
         });
@@ -371,7 +388,15 @@ pub fn SiteManager(dialog_id: u64, select: Option<String>) -> impl IntoView {
         let site = form.get_untracked();
         if site.host.is_empty() {
             spawn_local(async move {
-                alert("Hôte manquant", "Indiquez l'adresse du serveur.", false).await
+                alert(
+                    tr!("Hôte manquant", "Missing host"),
+                    tr!(
+                        "Indiquez l'adresse du serveur.",
+                        "Enter the server address."
+                    ),
+                    false,
+                )
+                .await
             });
             return;
         }
@@ -471,7 +496,7 @@ pub fn SiteManager(dialog_id: u64, select: Option<String>) -> impl IntoView {
             out.push(site_row(s, 0, &sel).into_any());
         }
         if out.is_empty() {
-            out.push(view! { <div class="muted sm-empty">"Aucun site. Cliquez sur « Nouveau site »."</div> }.into_any());
+            out.push(view! { <div class="muted sm-empty">{tr!("Aucun site. Cliquez sur « Nouveau site ».", "No site. Click \"New site\".")}</div> }.into_any());
         }
         out
     };
@@ -485,7 +510,7 @@ pub fn SiteManager(dialog_id: u64, select: Option<String>) -> impl IntoView {
             .chain(folders)
             .map(|f| {
                 let label = if f.is_empty() {
-                    "(racine)".to_string()
+                    tr!("(racine)", "(root)").to_string()
                 } else {
                     f.clone()
                 };
@@ -508,73 +533,73 @@ pub fn SiteManager(dialog_id: u64, select: Option<String>) -> impl IntoView {
     let general = move || {
         view! {
             <div class="kv sm-form">
-                <span>"Nom :"</span>
+                <span>{tr!("Nom :", "Name:")}</span>
                 <input type="text" node_ref=name_input disabled=move || !is_site.get()
                     prop:value=move || form.with(|f| f.name.clone())
                     on:input=move |ev| { let v = event_target_value(&ev); form.update(|f| f.name = v) }/>
-                <span>"Dossier :"</span>
+                <span>{tr!("Dossier :", "Folder:")}</span>
                 <select disabled=move || !is_site.get()
                     on:change=move |ev| { let v = event_target_value(&ev); form.update(|f| f.folder = v) }>
                     {folder_options}
                 </select>
-                <span>"Protocole :"</span>
+                <span>{tr!("Protocole :", "Protocol:")}</span>
                 <select disabled=move || !is_site.get()
                     on:change=move |ev| { let v = event_target_value(&ev); form.update(|f| f.protocol = v) }>
-                    <option value=PROTO_SCP prop:selected=move || form.with(|f| f.protocol == PROTO_SCP)>"SCP — protocole SCP natif (navigation via SFTP/shell)"</option>
+                    <option value=PROTO_SCP prop:selected=move || form.with(|f| f.protocol == PROTO_SCP)>{tr!("SCP — protocole SCP natif (navigation via SFTP/shell)", "SCP — native SCP protocol (browsing via SFTP/shell)")}</option>
                     <option value=PROTO_SFTP prop:selected=move || form.with(|f| f.protocol == PROTO_SFTP)>"SFTP — SSH File Transfer Protocol"</option>
                 </select>
-                <span>"Hôte :"</span>
+                <span>{tr!("Hôte :", "Host:")}</span>
                 <span class="inline grow">
-                    {text_field(|f| f.host.clone(), |f, v| f.host = v, "serveur.exemple.fr")}
-                    <span class="lbl">"Port :"</span>
+                    {text_field(|f| f.host.clone(), |f, v| f.host = v, tr!("serveur.exemple.fr", "server.example.com"))}
+                    <span class="lbl">{tr!("Port :", "Port:")}</span>
                     <input type="number" min="1" max="65535" class="port" disabled=move || !is_site.get()
                         prop:value=move || form.with(|f| f.port.to_string())
                         on:input=move |ev| { if let Ok(p) = event_target_value(&ev).parse::<u16>() { form.update(|f| f.port = p.max(1)) } }/>
                 </span>
-                <span>"Identifiant :"</span>
+                <span>{tr!("Identifiant :", "Username:")}</span>
                 {text_field(|f| f.user.clone(), |f, v| f.user = v, "")}
-                <span>"Authentification :"</span>
+                <span>{tr!("Authentification :", "Authentication:")}</span>
                 <select disabled=move || !is_site.get()
                     on:change=move |ev| { let v = event_target_value(&ev); form.update(|f| f.auth = v) }>
-                    {AUTH_CHOICES.iter().map(|(k, l)| view! {
-                        <option value=*k prop:selected=move || form.with(|f| f.auth == *k)>{*l}</option>
+                    {auth_choices().into_iter().map(|(k, l)| view! {
+                        <option value=k prop:selected=move || form.with(|f| f.auth == k)>{l}</option>
                     }).collect_view()}
                 </select>
             </div>
 
             <fieldset class="group" disabled=move || !key_on.get()>
-                <legend>"Clé SSH"</legend>
+                <legend>{tr!("Clé SSH", "SSH key")}</legend>
                 <div class="kv">
-                    <span>"Fichier de clé :"</span>
+                    <span>{tr!("Fichier de clé :", "Key file:")}</span>
                     <span class="inline grow">
                         {text_field(|f| f.key_file.clone(), |f, v| f.key_file = v, "~/.ssh/id_ed25519")}
-                        <button type="button" on:click=browse_key>"Parcourir…"</button>
+                        <button type="button" on:click=browse_key>{tr!("Parcourir…", "Browse…")}</button>
                     </span>
-                    <span>"Phrase de passe :"</span>
-                    {secret_input(secrets.passphrase, "(demandée si nécessaire)", key_on)}
+                    <span>{tr!("Phrase de passe :", "Passphrase:")}</span>
+                    {secret_input(secrets.passphrase, tr!("(demandée si nécessaire)", "(asked if needed)"), key_on)}
                 </div>
                 <label class="check"><input type="checkbox" prop:checked=move || form.with(|f| f.use_agent)
                     on:change=move |ev| { let on = event_target_checked(&ev); form.update(|f| f.use_agent = on) }/>
-                    "Utiliser aussi les clés de l'agent SSH (ssh-agent)"</label>
+                    {tr!("Utiliser aussi les clés de l'agent SSH (ssh-agent)", "Also use SSH agent keys (ssh-agent)")}</label>
             </fieldset>
 
             <fieldset class="group" disabled=move || !pw_on.get()>
-                <legend>"Mot de passe"</legend>
+                <legend>{tr!("Mot de passe", "Password")}</legend>
                 <div class="kv">
-                    <span>"Mot de passe :"</span>
-                    {secret_input(secrets.password, "(demandé à la connexion si vide)", pw_on)}
+                    <span>{tr!("Mot de passe :", "Password:")}</span>
+                    {secret_input(secrets.password, tr!("(demandé à la connexion si vide)", "(asked at connection if empty)"), pw_on)}
                 </div>
             </fieldset>
 
             <fieldset class="group" disabled=move || !otp_on.get()>
-                <legend>"Code à usage unique (TOTP / Google Authenticator)"</legend>
+                <legend>{tr!("Code à usage unique (TOTP / Google Authenticator)", "One-time code (TOTP / Google Authenticator)")}</legend>
                 <label class="radio"><input type="radio" name="otp" prop:checked=move || form.with(|f| f.otp_mode != OTP_SECRET)
-                    on:change=move |_| form.update(|f| f.otp_mode = OTP_ASK.into())/>"Demander le code à chaque connexion"</label>
+                    on:change=move |_| form.update(|f| f.otp_mode = OTP_ASK.into())/>{tr!("Demander le code à chaque connexion", "Ask for the code at each connection")}</label>
                 <label class="radio"><input type="radio" name="otp" prop:checked=move || form.with(|f| f.otp_mode == OTP_SECRET)
-                    on:change=move |_| form.update(|f| f.otp_mode = OTP_SECRET.into())/>"Générer le code automatiquement à partir du secret"</label>
+                    on:change=move |_| form.update(|f| f.otp_mode = OTP_SECRET.into())/>{tr!("Générer le code automatiquement à partir du secret", "Generate the code automatically from the secret")}</label>
                 <div class="kv indent">
-                    <span>"Secret :"</span>
-                    {secret_input(secrets.otp, "Base32 (JBSWY3DP…) ou URI otpauth://", otp_auto)}
+                    <span>{tr!("Secret :", "Secret:")}</span>
+                    {secret_input(secrets.otp, tr!("Base32 (JBSWY3DP…) ou URI otpauth://", "Base32 (JBSWY3DP…) or otpauth:// URI"), otp_auto)}
                 </div>
                 <div class="indent otp-preview">
                     {move || {
@@ -583,13 +608,13 @@ pub fn SiteManager(dialog_id: u64, select: Option<String>) -> impl IntoView {
                             ().into_any()
                         } else if ok {
                             let (code, left) = text.split_once('|').map(|(a, b)| (a.to_string(), b.to_string())).unwrap_or_default();
-                            view! { <span>"Code actuel : " <b class="otp-code">{code}</b> {format!(" (expire dans {left} s) — vérifiez qu'il correspond à votre application")}</span> }.into_any()
+                            view! { <span>{tr!("Code actuel : ", "Current code: ")} <b class="otp-code">{code}</b> {trf!(" (expire dans {left} s) — vérifiez qu'il correspond à votre application", " (expires in {left} s) — check that it matches your app")}</span> }.into_any()
                         } else {
                             view! { <span class="error-text">{text}</span> }.into_any()
                         }
                     }}
                 </div>
-                <p class="small muted">{format!("Les secrets sont stockés dans : {}.", if available { "trousseau système" } else { "mémoire uniquement (aucun trousseau détecté)" })}</p>
+                <p class="small muted">{trf!("Les secrets sont stockés dans : {}.", "Secrets are stored in: {}.", if available { tr!("trousseau système", "system keyring") } else { tr!("mémoire uniquement (aucun trousseau détecté)", "memory only (no keyring detected)") })}</p>
             </fieldset>
         }
     };
@@ -597,24 +622,24 @@ pub fn SiteManager(dialog_id: u64, select: Option<String>) -> impl IntoView {
     let advanced = move || {
         view! {
             <div class="kv sm-form">
-                <span>"Dossier distant initial :"</span>
-                {text_field(|f| f.remote_dir.clone(), |f, v| f.remote_dir = v, "(dossier personnel)")}
-                <span>"Dossier local initial :"</span>
+                <span>{tr!("Dossier distant initial :", "Initial remote folder:")}</span>
+                {text_field(|f| f.remote_dir.clone(), |f, v| f.remote_dir = v, tr!("(dossier personnel)", "(home folder)"))}
+                <span>{tr!("Dossier local initial :", "Initial local folder:")}</span>
                 <span class="inline grow">
                     {text_field(|f| f.local_dir.clone(), |f, v| f.local_dir = v, "")}
-                    <button type="button" disabled=move || !is_site.get() on:click=browse_local>"Parcourir…"</button>
+                    <button type="button" disabled=move || !is_site.get() on:click=browse_local>{tr!("Parcourir…", "Browse…")}</button>
                 </span>
-                <span>"Keepalive SSH :"</span>
+                <span>{tr!("Keepalive SSH :", "SSH keepalive:")}</span>
                 <span class="inline">
                     <input type="number" min="0" max="3600" class="narrow" disabled=move || !is_site.get()
                         prop:value=move || form.with(|f| f.keepalive.to_string())
                         on:input=move |ev| { if let Ok(n) = event_target_value(&ev).parse::<u32>() { form.update(|f| f.keepalive = n.min(3600)) } }/>
-                    " s " <span class="muted">"(0 = désactivé)"</span>
+                    " s " <span class="muted">{tr!("(0 = désactivé)", "(0 = disabled)")}</span>
                 </span>
             </div>
             <label class="check"><input type="checkbox" disabled=move || !is_site.get() prop:checked=move || form.with(|f| f.compression)
                 on:change=move |ev| { let on = event_target_checked(&ev); form.update(|f| f.compression = on) }/>
-                "Compression SSH (utile sur liaison lente)"</label>
+                {tr!("Compression SSH (utile sur liaison lente)", "SSH compression (useful on slow links)")}</label>
         }
     };
 
@@ -627,21 +652,21 @@ pub fn SiteManager(dialog_id: u64, select: Option<String>) -> impl IntoView {
     };
 
     view! {
-        <Modal title="Gestionnaire de sites".to_string() class="site-manager" on_close=Callback::new(move |_| close())>
+        <Modal title=tr!("Gestionnaire de sites", "Site Manager").to_string() class="site-manager" on_close=Callback::new(move |_| close())>
             <div class="sm-body">
                 <div class="sm-left">
-                    <div class="small">"Sélectionnez une entrée :"</div>
+                    <div class="small">{tr!("Sélectionnez une entrée :", "Select an entry:")}</div>
                     <div class="sm-tree">{tree}</div>
                     <div class="sm-buttons">
-                        <button type="button" on:click=new_site>{icon("plus")}"Nouveau site"</button>
-                        <button type="button" on:click=new_folder>{icon("folder-new")}"Nouveau dossier"</button>
-                        <button type="button" disabled=move || !is_site.get() on:click=duplicate>{icon("copy")}"Dupliquer"</button>
-                        <button type="button" disabled=move || selection.get() == Selection::None on:click=delete>{icon("trash")}"Supprimer"</button>
+                        <button type="button" on:click=new_site>{icon("plus")}{tr!("Nouveau site", "New site")}</button>
+                        <button type="button" on:click=new_folder>{icon("folder-new")}{tr!("Nouveau dossier", "New folder")}</button>
+                        <button type="button" disabled=move || !is_site.get() on:click=duplicate>{icon("copy")}{tr!("Dupliquer", "Duplicate")}</button>
+                        <button type="button" disabled=move || selection.get() == Selection::None on:click=delete>{icon("trash")}{tr!("Supprimer", "Delete")}</button>
                     </div>
                 </div>
                 <div class="sm-right">
                     <div class="tabs-bar small-tabs">
-                        {["Général", "Avancé", "Commentaires"].iter().enumerate().map(|(i, t)| view! {
+                        {[tr!("Général", "General"), tr!("Avancé", "Advanced"), tr!("Commentaires", "Comments")].iter().enumerate().map(|(i, t)| view! {
                             <button type="button" class="tab-btn" class:active=move || tab.get() == i on:click=move |_| tab.set(i)>{*t}</button>
                         }).collect_view()}
                     </div>
@@ -655,9 +680,9 @@ pub fn SiteManager(dialog_id: u64, select: Option<String>) -> impl IntoView {
                 </div>
             </div>
             <div class="modal-buttons">
-                <button type="button" on:click=move |_| close()>"Annuler"</button>
+                <button type="button" on:click=move |_| close()>{tr!("Annuler", "Cancel")}</button>
                 <button type="button" on:click=ok>"OK"</button>
-                <button type="button" class="primary" disabled=move || !is_site.get() on:click=move |_| connect()>{icon("connect")}"Connexion"</button>
+                <button type="button" class="primary" disabled=move || !is_site.get() on:click=move |_| connect()>{icon("connect")}{tr!("Connexion", "Connect")}</button>
             </div>
         </Modal>
     }

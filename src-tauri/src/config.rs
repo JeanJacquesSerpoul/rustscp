@@ -6,6 +6,7 @@ use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
 use rustscp_shared::Settings;
+use rustscp_shared::i18n::{Lang, resolve, set_lang};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
@@ -48,4 +49,20 @@ pub fn load_settings() -> Settings {
 
 pub fn save_settings(settings: &Settings) -> std::io::Result<()> {
     write_json_atomic(&config_dir().join("settings.json"), settings)
+}
+
+/// Locale du système (première variable renseignée parmi LC_ALL, LC_MESSAGES, LANG, LANGUAGE).
+pub fn system_locale() -> String {
+    ["LC_ALL", "LC_MESSAGES", "LANG", "LANGUAGE"]
+        .iter()
+        .filter_map(|v| std::env::var(v).ok())
+        .find(|v| !v.is_empty() && v != "C" && v != "POSIX")
+        .unwrap_or_default()
+}
+
+/// Applique le réglage de langue (auto : locale du système) ; retourne la langue choisie.
+pub fn apply_language(settings: &Settings) -> Lang {
+    let lang = resolve(&settings.language, &system_locale());
+    set_lang(lang);
+    lang
 }

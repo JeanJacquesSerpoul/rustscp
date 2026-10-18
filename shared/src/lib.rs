@@ -2,7 +2,10 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod i18n;
 pub mod util;
+
+pub use i18n::{Lang, lang, set_lang};
 
 pub const APP_NAME: &str = "RustSCP";
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -48,20 +51,45 @@ pub const AUTH_PASSWORD_OTP: &str = "password_otp";
 pub const AUTH_KEY_PASSWORD_OTP: &str = "key_password_otp";
 pub const AUTH_INTERACTIVE: &str = "interactive";
 
-pub const AUTH_CHOICES: &[(&str, &str)] = &[
-    (AUTH_KEY_OTP, "Clé SSH + code TOTP (2FA)"),
-    (AUTH_KEY, "Clé SSH"),
-    (AUTH_PASSWORD, "Mot de passe"),
-    (AUTH_PASSWORD_OTP, "Mot de passe + code TOTP (2FA)"),
-    (AUTH_KEY_PASSWORD_OTP, "Clé SSH + mot de passe + code TOTP"),
-    (AUTH_INTERACTIVE, "Interactive (tout demander)"),
+/// (clé, libellé français, libellé anglais)
+const AUTH_LABELS: &[(&str, &str, &str)] = &[
+    (
+        AUTH_KEY_OTP,
+        "Clé SSH + code TOTP (2FA)",
+        "SSH key + TOTP code (2FA)",
+    ),
+    (AUTH_KEY, "Clé SSH", "SSH key"),
+    (AUTH_PASSWORD, "Mot de passe", "Password"),
+    (
+        AUTH_PASSWORD_OTP,
+        "Mot de passe + code TOTP (2FA)",
+        "Password + TOTP code (2FA)",
+    ),
+    (
+        AUTH_KEY_PASSWORD_OTP,
+        "Clé SSH + mot de passe + code TOTP",
+        "SSH key + password + TOTP code",
+    ),
+    (
+        AUTH_INTERACTIVE,
+        "Interactive (tout demander)",
+        "Interactive (ask for everything)",
+    ),
 ];
 
-pub fn auth_label(auth: &str) -> &str {
-    AUTH_CHOICES
+/// Types d'authentification (clé, libellé dans la langue courante).
+pub fn auth_choices() -> Vec<(&'static str, &'static str)> {
+    AUTH_LABELS
         .iter()
-        .find(|(k, _)| *k == auth)
-        .map(|(_, l)| *l)
+        .map(|(k, fr, en)| (*k, i18n::pick(fr, en)))
+        .collect()
+}
+
+pub fn auth_label(auth: &str) -> &str {
+    AUTH_LABELS
+        .iter()
+        .find(|(k, _, _)| *k == auth)
+        .map(|(_, fr, en)| i18n::pick(fr, en))
         .unwrap_or(auth)
 }
 
@@ -122,7 +150,7 @@ pub struct Site {
 impl Default for Site {
     fn default() -> Self {
         Site {
-            name: "Nouveau site".into(),
+            name: tr!("Nouveau site", "New site").into(),
             host: String::new(),
             port: 22,
             user: String::new(),
@@ -188,6 +216,8 @@ pub struct Settings {
     pub connect_timeout: u32,
     pub double_click_transfers: bool,
     pub quickconnect_history: Vec<QuickEntry>,
+    /// auto | fr | en
+    pub language: String,
 }
 
 impl Default for Settings {
@@ -201,21 +231,43 @@ impl Default for Settings {
             connect_timeout: 15,
             double_click_transfers: true,
             quickconnect_history: Vec::new(),
+            language: "auto".into(),
         }
     }
 }
 
-pub const OVERWRITE_CHOICES: &[(&str, &str)] = &[
-    ("overwrite", "Écraser"),
-    ("newer", "Écraser si la source est plus récente"),
-    ("size", "Écraser si la taille est différente"),
-    (
-        "newer_or_size",
-        "Écraser si plus récent ou taille différente",
-    ),
-    ("rename", "Renommer (ajouter un numéro)"),
-    ("skip", "Ignorer"),
-];
+/// Politiques d'écrasement (clé, libellé dans la langue courante).
+pub fn overwrite_choices() -> [(&'static str, &'static str); 6] {
+    [
+        ("overwrite", tr!("Écraser", "Overwrite")),
+        (
+            "newer",
+            tr!(
+                "Écraser si la source est plus récente",
+                "Overwrite if source is newer"
+            ),
+        ),
+        (
+            "size",
+            tr!(
+                "Écraser si la taille est différente",
+                "Overwrite if size differs"
+            ),
+        ),
+        (
+            "newer_or_size",
+            tr!(
+                "Écraser si plus récent ou taille différente",
+                "Overwrite if newer or size differs"
+            ),
+        ),
+        (
+            "rename",
+            tr!("Renommer (ajouter un numéro)", "Rename (add a number)"),
+        ),
+        ("skip", tr!("Ignorer", "Skip")),
+    ]
+}
 
 // -------------------------------------------------------------- transferts
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -239,12 +291,12 @@ pub enum TransferStatus {
 impl TransferStatus {
     pub fn label(self) -> &'static str {
         match self {
-            TransferStatus::Queued => "En attente",
-            TransferStatus::Active => "En cours",
-            TransferStatus::Done => "Terminé",
-            TransferStatus::Failed => "Échec",
-            TransferStatus::Cancelled => "Annulé",
-            TransferStatus::Skipped => "Ignoré (existe déjà)",
+            TransferStatus::Queued => tr!("En attente", "Queued"),
+            TransferStatus::Active => tr!("En cours", "In progress"),
+            TransferStatus::Done => tr!("Terminé", "Done"),
+            TransferStatus::Failed => tr!("Échec", "Failed"),
+            TransferStatus::Cancelled => tr!("Annulé", "Cancelled"),
+            TransferStatus::Skipped => tr!("Ignoré (existe déjà)", "Skipped (already exists)"),
         }
     }
 
