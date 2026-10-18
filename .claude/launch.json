@@ -1,0 +1,19 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "devbridge",
+      "runtimeExecutable": "cargo",
+      "runtimeArgs": ["run", "-p", "rustscp-devbridge"],
+      "env": { "RUSTSCP_MEMORY_SECRETS": "1", "AWS_LC_SYS_PREBUILT_NASM": "1" },
+      "port": 1421
+    },
+    {
+      "name": "ui",
+      "runtimeExecutable": "trunk",
+      "runtimeArgs": ["serve"],
+      "env": { "NO_COLOR": "true" },
+      "port": 1420
+    }
+  ]
+}
