@@ -5,7 +5,6 @@
 //! un bon débit sur les liaisons à latence.
 
 use std::fs::File;
-use std::os::unix::fs::FileExt;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use futures::stream::{FuturesUnordered, StreamExt};
@@ -304,7 +303,7 @@ impl Sftp {
                 Ok(data) => {
                     let n = data.data.len() as u64;
                     if n > 0 {
-                        out.write_at(&data.data, off)?;
+                        crate::platform::write_all_at(out, &data.data, off)?;
                         received += n;
                         progress(n);
                     }
@@ -367,7 +366,7 @@ impl Sftp {
                 let n = if want == 0 {
                     0
                 } else {
-                    input.read_at(&mut buf, off)?
+                    crate::platform::read_at(input, &mut buf, off)?
                 };
                 if n == 0 {
                     done = true;

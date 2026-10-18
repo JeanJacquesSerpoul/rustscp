@@ -69,7 +69,12 @@ impl SecretStore {
 
     /// Où les secrets sont conservés (pour l'affichage).
     pub fn backend_name(&self) -> &'static str {
-        if self.available {
+        if self.available && cfg!(windows) {
+            tr!(
+                "gestionnaire d'identification Windows",
+                "Windows Credential Manager"
+            )
+        } else if self.available {
             tr!(
                 "trousseau système (Secret Service)",
                 "system keyring (Secret Service)"

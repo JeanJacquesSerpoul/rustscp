@@ -33,6 +33,27 @@ WebKitGTK 4.1 and OpenSSL (Debian: `libwebkit2gtk-4.1-dev libssl-dev libdbus-1-d
 
 Development: `cargo tauri dev`.
 
+### Windows
+
+In PowerShell, from the repository root:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File build-windows.ps1
+```
+
+The script produces `target\release\rustscp.exe` (standalone executable) and an
+NSIS installer in `target\release\bundle\nsis\`; `-NoInstaller` builds only the
+executable.
+
+Requirements: stable Rust (MSVC) with the Visual Studio Build Tools ("Desktop development
+with C++" workload), the `wasm32-unknown-unknown` target, `trunk`, `tauri-cli` 2.
+WebView2 ships with Windows 10/11. NASM is optional (prebuilt `aws-lc-sys` objects are
+used otherwise).
+
+On Windows, secrets are kept in the Credential Manager, the configuration in
+`%APPDATA%\rustscp\`, and the SSH agent used is OpenSSH for Windows' (or Pageant).
+The local pane's "/" root lists the drives.
+
 ## Languages
 
 The interface and messages are available in **French** and **English**.

@@ -4,6 +4,7 @@ pub mod commands;
 pub mod config;
 pub mod error;
 pub mod local;
+pub mod platform;
 pub mod remotefs;
 pub mod scp;
 pub mod sftp;

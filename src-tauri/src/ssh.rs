@@ -20,7 +20,7 @@ use std::time::Duration;
 
 use russh::client::{self, Handle, KeyboardInteractiveAuthResponse, Msg};
 use russh::keys::agent::AgentIdentity;
-use russh::keys::agent::client::AgentClient;
+use russh::keys::agent::client::{AgentClient, AgentStream};
 use russh::keys::{
     Certificate, HashAlg, PrivateKey, PrivateKeyWithHashAlg, PublicKey, PublicKeyOrCertificate,
 };
@@ -201,8 +201,26 @@ impl HostCheck {
 }
 
 fn set_private(path: &Path) {
-    use std::os::unix::fs::PermissionsExt;
-    let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+    crate::platform::set_mode(path, 0o600);
+}
+
+type DynAgent = AgentClient<Box<dyn AgentStream + Send + Unpin + 'static>>;
+
+/// Agent SSH : `SSH_AUTH_SOCK` sur Unix ; agent OpenSSH (tube nommé) puis Pageant sur Windows.
+async fn connect_agent() -> std::result::Result<DynAgent, russh::keys::Error> {
+    #[cfg(unix)]
+    {
+        AgentClient::connect_env().await.map(AgentClient::dynamic)
+    }
+    #[cfg(windows)]
+    {
+        match AgentClient::connect_named_pipe(r"\\.\pipe\openssh-ssh-agent").await {
+            Ok(agent) => Ok(agent.dynamic()),
+            Err(_) => AgentClient::connect_pageant()
+                .await
+                .map(AgentClient::dynamic),
+        }
+    }
 }
 
 pub struct ClientHandler {
@@ -848,7 +866,7 @@ impl Session {
             );
         }
         if site.use_agent {
-            match AgentClient::connect_env().await {
+            match connect_agent().await {
                 Ok(mut agent) => match agent.request_identities().await {
                     Ok(ids) => {
                         if !ids.is_empty() {
@@ -1288,13 +1306,7 @@ async fn probe_shell(conn: Arc<Conn>, shell: Arc<AtomicU8>, ui: Arc<dyn Ui>) {
 }
 
 pub fn expand_tilde(path: &str) -> PathBuf {
-    if let Some(rest) = path.strip_prefix("~/") {
-        dirs::home_dir().unwrap_or_default().join(rest)
-    } else if path == "~" {
-        dirs::home_dir().unwrap_or_default()
-    } else {
-        PathBuf::from(path)
-    }
+    crate::platform::native_path(path)
 }
 
 /// Protège un argument pour le shell distant (équivalent de `shlex.quote`).

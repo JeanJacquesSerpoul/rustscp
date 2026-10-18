@@ -5,7 +5,6 @@
 
 use std::fs::{File, FileTimes};
 use std::io::{BufWriter, Read, Write};
-use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::Path;
 use std::time::{Duration, UNIX_EPOCH};
 
@@ -168,7 +167,8 @@ pub async fn upload(
         .await?;
     io.read_ack().await?;
     if preserve_times {
-        io.send(format!("T{} 0 {} 0\n", meta.mtime(), meta.atime()).as_bytes())
+        let (mtime, atime) = (crate::platform::mtime(&meta), crate::platform::atime(&meta));
+        io.send(format!("T{mtime} 0 {atime} 0\n").as_bytes())
             .await?;
         io.read_ack().await?;
     }
@@ -176,7 +176,7 @@ pub async fn upload(
     io.send(
         format!(
             "C{:04o} {} {}\n",
-            meta.permissions().mode() & 0o7777,
+            crate::platform::mode(&meta) & 0o7777,
             meta.len(),
             name
         )
@@ -336,7 +336,7 @@ async fn download_inner(
     let file = out.into_inner().map_err(|e| Error::Io(e.to_string()))?;
     io.read_ack().await?;
     io.send(b"\0").await?;
-    let _ = file.set_permissions(std::fs::Permissions::from_mode(mode & 0o777));
+    crate::platform::set_file_mode(&file, mode & 0o777);
     if let Some((mtime, atime)) = times.filter(|_| preserve_times) {
         let t = |s: i64| UNIX_EPOCH + Duration::from_secs(s.max(0) as u64);
         let _ = file.set_times(

@@ -23,7 +23,7 @@ tauri-plugin-window-state = "2.5"
 tokio = { version = "1", features = ["full"] }
 russh = "0.64"
 russh-sftp = "3"
-keyring = { version = "3.6", features = ["sync-secret-service", "crypto-rust"] }
+keyring = { version = "3.6", features = ["sync-secret-service", "crypto-rust", "windows-native"] }
 hmac = "0.12"
 sha1 = "0.10"
 data-encoding = "2"
@@ -36,7 +36,12 @@ chrono = "0.4"
 uuid = { version = "1", features = ["v4"] }
 futures = "0.3"
 bytes = "1"
+
+[target.'cfg(unix)'.dependencies]
 libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+sys-locale = "0.3"
 
 [dev-dependencies]
 sha2 = "0.10"

@@ -5,7 +5,6 @@
 
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::fs::{self, File, FileTimes};
-use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
@@ -19,6 +18,7 @@ use rustscp_shared::{
 use tokio::sync::{Mutex as AsyncMutex, Notify};
 
 use crate::error::{Error, Result};
+use crate::platform::{self, native_path, ui_path};
 use crate::scp;
 use crate::sftp::Sftp;
 use crate::ssh::Session;
@@ -133,7 +133,7 @@ impl Item {
         TransferView {
             id: self.id,
             direction: self.direction,
-            local: self.local.to_string_lossy().into_owned(),
+            local: ui_path(&self.local),
             remote: self.remote.clone(),
             size: p.size.load(Ordering::Relaxed),
             transferred: p.transferred.load(Ordering::Relaxed),
@@ -567,7 +567,7 @@ impl TransferManager {
                     id: it.id,
                     session_id: it.session.id,
                     direction: it.direction,
-                    local: it.local.to_string_lossy().into_owned(),
+                    local: ui_path(&it.local),
                     remote: it.remote.clone(),
                     status,
                     tag: it.tag.clone(),
@@ -698,7 +698,13 @@ impl TransferManager {
                     }
                     job.progress.size.store(remote.size, Ordering::Relaxed);
                     if !self
-                        .overwrite_ok(job, remote.size, remote.mtime, st.len(), st.mtime())
+                        .overwrite_ok(
+                            job,
+                            remote.size,
+                            remote.mtime,
+                            st.len(),
+                            platform::mtime(&st),
+                        )
                         .await?
                     {
                         return Ok(false);
@@ -757,7 +763,13 @@ impl TransferManager {
                     }
                     if !job.force
                         && !self
-                            .overwrite_ok(job, st.len(), st.mtime(), remote.size, remote.mtime)
+                            .overwrite_ok(
+                                job,
+                                st.len(),
+                                platform::mtime(&st),
+                                remote.size,
+                                remote.mtime,
+                            )
                             .await?
                     {
                         return Ok(false);
@@ -783,9 +795,13 @@ impl TransferManager {
                     let fh = File::open(&job.local)?;
                     s.upload(&fh, st.len(), &job.remote, &on_progress, &cancelled)
                         .await?;
-                    let _ = s.chmod(&job.remote, st.permissions().mode()).await;
+                    if cfg!(unix) {
+                        let _ = s.chmod(&job.remote, platform::mode(&st)).await;
+                    }
                     if preserve {
-                        let _ = s.set_times(&job.remote, st.atime(), st.mtime()).await;
+                        let _ = s
+                            .set_times(&job.remote, platform::atime(&st), platform::mtime(&st))
+                            .await;
                     }
                 }
             }
@@ -956,7 +972,7 @@ pub async fn expand_upload(
 ) -> Result<Vec<NewItem>> {
     let mut items = Vec::new();
     for path in local_paths {
-        let path = PathBuf::from(path);
+        let path = native_path(path);
         let name = path
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
@@ -1073,7 +1089,7 @@ impl Edits {
     }
 
     pub fn temp_path(session_id: u64, remote: &str) -> PathBuf {
-        let uid = unsafe { libc::getuid() };
+        let uid = platform::user_tag();
         let parent = rparent(remote).trim_matches('/').replace('/', "_");
         let sub = if parent.is_empty() {
             "_root".to_string()
@@ -1093,7 +1109,7 @@ impl Edits {
             let mut p = parent.to_path_buf();
             let root = std::env::temp_dir();
             while p != root && p.starts_with(&root) {
-                let _ = fs::set_permissions(&p, fs::Permissions::from_mode(0o700));
+                platform::set_mode(&p, 0o700);
                 if !p.pop() {
                     break;
                 }
@@ -1140,7 +1156,7 @@ impl Edits {
                         *mtime = m;
                         changed.push(EditChanged {
                             session_id: *session_id,
-                            local: path.to_string_lossy().into_owned(),
+                            local: ui_path(path),
                             remote: remote.clone(),
                         });
                     }

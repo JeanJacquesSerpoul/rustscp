@@ -6,12 +6,12 @@
 //! POST /invoke/<commande> (corps JSON) → résultat JSON ; GET /events?since=N.
 
 use std::collections::VecDeque;
-use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use rustscp_lib::commands::AppState;
 use rustscp_lib::error::CmdError;
+use rustscp_lib::platform::{is_virtual_root, native_path, ui_path};
 use rustscp_lib::transfer::{Edits, NewItem, expand_download, expand_upload};
 use rustscp_lib::ui::{BoxFut, PromptHub, Ui, now_hms};
 use rustscp_lib::{config, local, sites, ssh, totp};
@@ -81,7 +81,7 @@ async fn dispatch(st: &AppState, cmd: &str, a: Value) -> Result<Value, CmdError>
         "app_info" => Ok(json!({
             "name": APP_NAME, "version": VERSION,
             "secrets": { "available": st.secrets.available, "name": st.secrets.backend_name() },
-            "default_key": local::default_key(), "home": local::home(),
+            "default_key": local::default_key(), "home": ui_path(&local::home()),
             "user": std::env::var("USER").unwrap_or_default(),
             "lang": rustscp_shared::lang().code()
         })),
@@ -183,7 +183,7 @@ async fn dispatch(st: &AppState, cmd: &str, a: Value) -> Result<Value, CmdError>
                 expand_download(
                     &sess,
                     &de::<Vec<RemoteItem>>(&a, "items")?,
-                    &PathBuf::from(s("local_dir")),
+                    &native_path(&s("local_dir")),
                 )
                 .await?
             };
@@ -211,14 +211,9 @@ async fn dispatch(st: &AppState, cmd: &str, a: Value) -> Result<Value, CmdError>
         }
         "reupload" => {
             let sess = st.session(id())?;
-            let size = std::fs::metadata(s("local"))?.len();
-            let mut item = NewItem::new(
-                Direction::Up,
-                PathBuf::from(s("local")),
-                s("remote"),
-                size,
-                sess,
-            );
+            let local = native_path(&s("local"));
+            let size = std::fs::metadata(&local)?.len();
+            let mut item = NewItem::new(Direction::Up, local, s("remote"), size, sess);
             item.force = true;
             st.transfers.add(vec![item]);
             ok(())
@@ -249,35 +244,39 @@ async fn dispatch(st: &AppState, cmd: &str, a: Value) -> Result<Value, CmdError>
             let _: () = st.transfers.set_running(de(&a, "running")?);
             ok(())
         }
-        "local_list" => Ok(json!(local::list(&ssh::expand_tilde(&s("path")))?)),
-        "local_tree" => Ok(json!(local::tree_path(
-            &ssh::expand_tilde(&s("path")),
-            true
-        ))),
+        "local_list" => Ok(json!(local::list(&s("path"))?)),
+        "local_tree" => Ok(json!(local::tree_path(&s("path"), true))),
         "local_resolve" => {
-            let p = ssh::expand_tilde(s("path").trim());
+            if is_virtual_root(s("path").trim()) {
+                return Ok(json!("/"));
+            }
+            let p = native_path(s("path").trim());
             let p = if p.is_absolute() {
                 p
             } else {
                 local::home().join(p)
             };
             match std::fs::canonicalize(&p) {
-                Ok(c) if c.is_dir() => Ok(json!(c)),
+                Ok(c) if c.is_dir() => Ok(json!(ui_path(&c))),
                 _ => Err(CmdError::from(format!(
                     "Dossier introuvable : {}",
                     p.display()
                 ))),
             }
         }
-        "local_mkdir" => ok(std::fs::create_dir(s("path"))?),
-        "local_rename" => ok(std::fs::rename(s("src"), s("dst"))?),
+        "local_mkdir" => ok(std::fs::create_dir(native_path(&s("path")))?),
+        "local_rename" => ok(std::fs::rename(
+            native_path(&s("src")),
+            native_path(&s("dst")),
+        )?),
         "local_trash" => {
-            trash::delete_all(de::<Vec<String>>(&a, "paths")?)
+            let paths = de::<Vec<String>>(&a, "paths")?;
+            trash::delete_all(paths.iter().map(|p| native_path(p)))
                 .map_err(|e| CmdError::from(e.to_string()))?;
             ok(())
         }
         "local_open" => {
-            local::open_with_default(std::path::Path::new(&s("path")));
+            local::open_with_default(&native_path(&s("path")));
             ok(())
         }
         other => Err(CmdError::from(format!("commande inconnue : {other}"))),

@@ -2,7 +2,6 @@
 
 use std::fs;
 use std::io::Write;
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
 use rustscp_shared::Settings;
@@ -10,26 +9,30 @@ use rustscp_shared::i18n::{Lang, resolve, set_lang};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
+/// `~/.config/rustscp` (ou `$XDG_CONFIG_HOME/rustscp`) ; `%APPDATA%\rustscp` sur Windows.
 pub fn config_dir() -> PathBuf {
-    let base = std::env::var_os("XDG_CONFIG_HOME")
-        .map(PathBuf::from)
-        .filter(|p| p.is_absolute())
-        .or_else(|| dirs::home_dir().map(|h| h.join(".config")))
-        .unwrap_or_else(|| PathBuf::from("/tmp"));
+    let base = if cfg!(windows) {
+        dirs::config_dir()
+    } else {
+        std::env::var_os("XDG_CONFIG_HOME")
+            .map(PathBuf::from)
+            .filter(|p| p.is_absolute())
+            .or_else(|| dirs::home_dir().map(|h| h.join(".config")))
+    }
+    .unwrap_or_else(std::env::temp_dir);
     let path = base.join("rustscp");
     let _ = fs::create_dir_all(&path);
-    let _ = fs::set_permissions(&path, fs::Permissions::from_mode(0o700));
+    crate::platform::set_mode(&path, 0o700);
     path
 }
 
 pub fn write_json_atomic<T: Serialize>(path: &Path, data: &T) -> std::io::Result<()> {
     let tmp = path.with_extension("json.tmp");
     {
-        let mut fh = fs::OpenOptions::new()
+        let mut fh = crate::platform::private_options()
             .write(true)
             .create(true)
             .truncate(true)
-            .mode(0o600)
             .open(&tmp)?;
         let text = serde_json::to_string_pretty(data).map_err(std::io::Error::other)?;
         fh.write_all(text.as_bytes())?;
@@ -51,13 +54,25 @@ pub fn save_settings(settings: &Settings) -> std::io::Result<()> {
     write_json_atomic(&config_dir().join("settings.json"), settings)
 }
 
-/// Locale du système (première variable renseignée parmi LC_ALL, LC_MESSAGES, LANG, LANGUAGE).
+/// Locale du système (première variable renseignée parmi LC_ALL, LC_MESSAGES, LANG, LANGUAGE ;
+/// à défaut, sur Windows, langue de l'utilisateur).
 pub fn system_locale() -> String {
     ["LC_ALL", "LC_MESSAGES", "LANG", "LANGUAGE"]
         .iter()
         .filter_map(|v| std::env::var(v).ok())
         .find(|v| !v.is_empty() && v != "C" && v != "POSIX")
+        .or_else(windows_locale)
         .unwrap_or_default()
+}
+
+#[cfg(windows)]
+fn windows_locale() -> Option<String> {
+    sys_locale::get_locale()
+}
+
+#[cfg(not(windows))]
+fn windows_locale() -> Option<String> {
+    None
 }
 
 /// Applique le réglage de langue (auto : locale du système) ; retourne la langue choisie.

@@ -1,7 +1,6 @@
 //! Commandes appelées par l'interface (invoke).
 
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::sync::{Arc, Mutex, RwLock};
 
 use rustscp_shared::util::{rbasename, rjoin};
@@ -13,6 +12,7 @@ use serde::Serialize;
 use tauri::{AppHandle, State};
 
 use crate::error::CmdError;
+use crate::platform::{native_path, ui_path};
 use crate::sites::SecretStore;
 use crate::ssh::Session;
 use crate::transfer::{Edits, NewItem, TransferManager, expand_download, expand_upload};
@@ -92,8 +92,8 @@ pub fn app_info(state: State<'_, AppState>) -> AppInfo {
             name: state.secrets.backend_name().into(),
         },
         default_key: local::default_key(),
-        home: local::home().to_string_lossy().into_owned(),
-        user: std::env::var("USER").unwrap_or_default(),
+        home: ui_path(&local::home()),
+        user: crate::platform::user_name(),
         lang: rustscp_shared::lang().code(),
     }
 }
@@ -134,7 +134,7 @@ pub async fn pick_file(app: AppHandle, start: String) -> CmdResult<Option<String
             .dialog()
             .file()
             .set_title(tr!("Choisir une clé privée", "Choose a private key"));
-        let dir = crate::ssh::expand_tilde(&start);
+        let dir = native_path(&start);
         if dir.is_dir() {
             d = d.set_directory(dir);
         }
@@ -153,7 +153,7 @@ pub async fn pick_dir(app: AppHandle, start: String) -> CmdResult<Option<String>
             .dialog()
             .file()
             .set_title(tr!("Choisir un dossier", "Choose a folder"));
-        let dir = crate::ssh::expand_tilde(&start);
+        let dir = native_path(&start);
         if dir.is_dir() {
             d = d.set_directory(dir);
         }
@@ -373,7 +373,7 @@ pub async fn queue_download(
     local_dir: String,
 ) -> CmdResult<EnqueueResult> {
     let s = state.session(id)?;
-    let items = expand_download(&s, &items, &PathBuf::from(local_dir)).await?;
+    let items = expand_download(&s, &items, &native_path(&local_dir)).await?;
     let res = summary(&items);
     state.transfers.add(items);
     Ok(res)
@@ -399,8 +399,9 @@ pub fn reupload(
     remote: String,
 ) -> CmdResult<()> {
     let s = state.session(id)?;
+    let local = native_path(&local);
     let size = std::fs::metadata(&local)?.len();
-    let mut item = NewItem::new(Direction::Up, PathBuf::from(local), remote, size, s);
+    let mut item = NewItem::new(Direction::Up, local, remote, size, s);
     item.force = true;
     state.transfers.add(vec![item]);
     Ok(())
@@ -452,27 +453,31 @@ pub fn transfer_running(state: State<'_, AppState>, running: bool) {
 // ------------------------------------------------------------ fichiers locaux
 #[tauri::command(rename_all = "snake_case")]
 pub async fn local_list(path: String) -> CmdResult<Vec<Entry>> {
-    blocking(move || local::list(&crate::ssh::expand_tilde(&path)))
+    blocking(move || local::list(&path))
         .await?
         .map_err(Into::into)
 }
 
 #[tauri::command(rename_all = "snake_case")]
 pub async fn local_tree(path: String, show_hidden: bool) -> CmdResult<Vec<(String, Vec<String>)>> {
-    blocking(move || local::tree_path(&crate::ssh::expand_tilde(&path), show_hidden)).await
+    blocking(move || local::tree_path(&path, show_hidden)).await
 }
 
 /// Normalise un chemin local ; erreur s'il ne s'agit pas d'un dossier.
 #[tauri::command(rename_all = "snake_case")]
 pub fn local_resolve(path: String) -> CmdResult<String> {
-    let p = crate::ssh::expand_tilde(path.trim());
+    let path = path.trim();
+    if crate::platform::is_virtual_root(path) {
+        return Ok("/".into());
+    }
+    let p = native_path(path);
     let p = if p.is_absolute() {
         p
     } else {
         local::home().join(p)
     };
     match std::fs::canonicalize(&p) {
-        Ok(c) if c.is_dir() => Ok(c.to_string_lossy().into_owned()),
+        Ok(c) if c.is_dir() => Ok(ui_path(&c)),
         _ => Err(CmdError {
             kind: "io",
             message: trf!(
@@ -486,22 +491,24 @@ pub fn local_resolve(path: String) -> CmdResult<String> {
 
 #[tauri::command(rename_all = "snake_case")]
 pub fn local_mkdir(path: String) -> CmdResult<()> {
-    Ok(std::fs::create_dir(path)?)
+    Ok(std::fs::create_dir(native_path(&path))?)
 }
 
 #[tauri::command(rename_all = "snake_case")]
 pub fn local_rename(src: String, dst: String) -> CmdResult<()> {
-    if std::path::Path::new(&dst).exists() {
+    let (src, dst_path) = (native_path(&src), native_path(&dst));
+    if dst_path.exists() {
         return Err(CmdError {
             kind: "io",
             message: trf!("{dst} existe déjà", "{dst} already exists"),
         });
     }
-    Ok(std::fs::rename(src, dst)?)
+    Ok(std::fs::rename(src, dst_path)?)
 }
 
 #[tauri::command(rename_all = "snake_case")]
 pub async fn local_trash(paths: Vec<String>) -> CmdResult<()> {
+    let paths: Vec<_> = paths.iter().map(|p| native_path(p)).collect();
     blocking(move || {
         trash::delete_all(&paths).map_err(|e| CmdError::from(trf!("Corbeille : {e}", "Trash: {e}")))
     })
@@ -510,5 +517,5 @@ pub async fn local_trash(paths: Vec<String>) -> CmdResult<()> {
 
 #[tauri::command(rename_all = "snake_case")]
 pub fn local_open(path: String) {
-    local::open_with_default(std::path::Path::new(&path));
+    local::open_with_default(&native_path(&path));
 }

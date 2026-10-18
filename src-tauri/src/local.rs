@@ -1,19 +1,34 @@
 //! Système de fichiers local (listing, opérations, ouverture).
 
 use std::fs;
-use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 
 use rustscp_shared::Entry;
+use rustscp_shared::util::S_IFDIR;
 
-fn mtime_of(meta: &fs::Metadata) -> i64 {
-    meta.mtime()
-}
+use crate::platform::{self, drives, is_virtual_root, native_path, ui_path};
 
-pub fn list(path: &Path) -> std::io::Result<Vec<Entry>> {
+/// Liste un dossier (chemin de l'interface ; sur Windows, « / » liste les lecteurs).
+pub fn list(ui: &str) -> std::io::Result<Vec<Entry>> {
+    if is_virtual_root(ui) {
+        return Ok(drives()
+            .into_iter()
+            .map(|name| Entry {
+                name,
+                size: 0,
+                mtime: 0,
+                mode: S_IFDIR | 0o755,
+                is_dir: true,
+                is_link: false,
+                owner: String::new(),
+                group: String::new(),
+            })
+            .collect());
+    }
+    let path = native_path(ui);
     let mut out = Vec::new();
-    for item in fs::read_dir(path)? {
+    for item in fs::read_dir(&path)? {
         let Ok(item) = item else { continue };
         let name = item.file_name().to_string_lossy().into_owned();
         let Ok(lmeta) = item
@@ -32,8 +47,8 @@ pub fn list(path: &Path) -> std::io::Result<Vec<Entry>> {
         out.push(Entry {
             name,
             size: if meta.is_dir() { 0 } else { meta.len() },
-            mtime: mtime_of(&meta),
-            mode: meta.permissions().mode(),
+            mtime: platform::mtime(&meta),
+            mode: platform::mode(&meta),
             is_dir: meta.is_dir(),
             is_link,
             owner: String::new(),
@@ -44,9 +59,9 @@ pub fn list(path: &Path) -> std::io::Result<Vec<Entry>> {
 }
 
 /// Sous-dossiers de chaque ancêtre de `path` (pour déplier l'arborescence d'un coup).
-pub fn tree_path(path: &Path, show_hidden: bool) -> Vec<(String, Vec<String>)> {
+pub fn tree_path(ui: &str, show_hidden: bool) -> Vec<(String, Vec<String>)> {
     let mut result = Vec::new();
-    let mut cur = Some(path.to_path_buf());
+    let mut cur = (!is_virtual_root(ui)).then(|| native_path(ui));
     while let Some(dir) = cur {
         if let Ok(rd) = fs::read_dir(&dir) {
             let mut names: Vec<String> = rd
@@ -56,9 +71,12 @@ pub fn tree_path(path: &Path, show_hidden: bool) -> Vec<(String, Vec<String>)> {
                 .filter(|n| show_hidden || !n.starts_with('.'))
                 .collect();
             names.sort_by_key(|a| a.to_lowercase());
-            result.push((dir.to_string_lossy().into_owned(), names));
+            result.push((ui_path(&dir), names));
         }
         cur = dir.parent().map(Path::to_path_buf);
+    }
+    if cfg!(windows) {
+        result.push(("/".into(), drives()));
     }
     result
 }
@@ -69,8 +87,7 @@ pub fn home() -> PathBuf {
 
 /// Ouvre un fichier avec l'application par défaut du bureau.
 pub fn open_with_default(path: &Path) {
-    match Command::new("xdg-open")
-        .arg(path)
+    match platform::open_command(path)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -81,7 +98,7 @@ pub fn open_with_default(path: &Path) {
                 let _ = child.wait();
             });
         }
-        Err(e) => log::warn!("xdg-open : {e}"),
+        Err(e) => log::warn!("ouverture de {} : {e}", path.display()),
     }
 }
 
