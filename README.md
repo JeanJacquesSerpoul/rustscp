@@ -1,6 +1,8 @@
 # RustSCP — client SCP/SFTP pour Linux
 
-Clone en **Rust · Tauri · Leptos** de [WSCP](../wscp) (Python · PyQt6 · Paramiko) :
+[![CI](https://github.com/JeanJacquesSerpoul/rustscp/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/JeanJacquesSerpoul/rustscp/actions/workflows/ci.yml)
+
+Clone en **Rust · Tauri · Leptos** de WSCP (Python · PyQt6 · Paramiko) :
 un client graphique inspiré de FileZilla, conçu pour les serveurs qui exigent
 **une clé SSH et un code TOTP en même temps**
 (`AuthenticationMethods publickey,keyboard-interactive` + `pam_google_authenticator`),
