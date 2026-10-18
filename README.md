@@ -2,6 +2,8 @@
 
 [![CI](https://github.com/JeanJacquesSerpoul/rustscp/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/JeanJacquesSerpoul/rustscp/actions/workflows/ci.yml)
 
+[English](README.en.md) · **Français**
+
 Client graphique en **Rust · Tauri · Leptos**, inspiré de FileZilla, conçu pour les serveurs qui exigent
 **une clé SSH et un code TOTP en même temps**
 (`AuthenticationMethods publickey,keyboard-interactive` + `pam_google_authenticator`),
@@ -12,6 +14,11 @@ ce que FileZilla ne gère pas.
 - types et utilitaires partagés entre les deux (`shared/`).
 
 ## Installation
+
+Des paquets prêts à l'emploi (`.deb`, AppImage, binaire seul) sont joints à chaque
+[release](https://github.com/JeanJacquesSerpoul/rustscp/releases).
+
+Pour compiler depuis les sources :
 
 ```bash
 ./install.sh
@@ -104,7 +111,6 @@ parallèles sont des canaux SSH distincts sur **une seule connexion authentifié
 Mesuré en local (release, serveur Docker) : SCP 211 Mio/s en envoi et 422 Mio/s en
 réception, SFTP 253 Mio/s en envoi et 422 Mio/s en réception.
 
-
 - Listes virtualisées (seules les lignes visibles sont dessinées), tri et filtre en
   Rust/WebAssembly : des dossiers de dizaines de milliers d'entrées restent fluides.
 - Tout le réseau est asynchrone (tokio) hors de l'interface ; les listings sont mis
@@ -152,12 +158,12 @@ Hors de Tauri, `frontend/devshim.js` relie l'interface à cette passerelle HTTP
 ## Structure
 
 ```
-shared/      types communs (sites, réglages, transferts, dialogues) et utilitaires
+shared/      types communs (sites, réglages, transferts, dialogues), utilitaires et i18n
 src-tauri/   ssh.rs (connexion + auth multi-facteurs), scp.rs (protocole SCP),
              sftp.rs (SFTP en pipeline), remotefs.rs (SFTP / shell),
              transfer.rs (file parallèle, édition distante), sites.rs, config.rs,
              totp.rs, local.rs, commands.rs (commandes Tauri), ui.rs (événements)
-devbridge/    passerelle HTTP de développement (interface dans un navigateur)
+devbridge/   passerelle HTTP de développement (interface dans un navigateur)
 frontend/    app.rs, panes.rs (listes et arborescences), queue.rs, dialogs.rs,
              sitemanager.rs, actions.rs, state.rs, layout.rs, icons.rs, styles.css
 ```
