@@ -1,4 +1,4 @@
-# RustSCP — client SCP/SFTP pour Linux et Windows
+# RustSCP — client SCP/SFTP/FTP pour Linux et Windows
 
 [![CI](https://github.com/JeanJacquesSerpoul/rustscp/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/JeanJacquesSerpoul/rustscp/actions/workflows/ci.yml)
 
@@ -9,7 +9,8 @@ Client graphique en **Rust · Tauri · Leptos**, inspiré de FileZilla, conçu p
 (`AuthenticationMethods publickey,keyboard-interactive` + `pam_google_authenticator`),
 ce que FileZilla ne gère pas.
 
-- cœur réseau en Rust natif (`russh`, `russh-sftp`) : SSH, SCP, SFTP, file de transferts ;
+- cœur réseau en Rust natif (`russh`, `russh-sftp`, `suppaftp`) : SSH, SCP, SFTP, FTP/FTPS,
+  file de transferts ;
 - interface en Leptos compilée en WebAssembly, affichée par Tauri 2 (WebKitGTK) ;
 - types et utilitaires partagés entre les deux (`shared/`).
 
@@ -99,6 +100,12 @@ parallèles sont des canaux SSH distincts sur **une seule connexion authentifié
 - Protocole **SCP natif** (implémenté directement sur le canal, sans programme externe)
   ou **SFTP** ; navigation via SFTP, ou via commandes shell (`find`) sur les serveurs
   « SCP seul » ; repli automatique en SFTP si le serveur refuse les commandes.
+- **FTP** et **FTPS** (TLS explicite, `AUTH TLS`) avec mot de passe ou accès anonyme
+  (`anonymous`) : mode passif, listings MLSD ou LIST (Unix et DOS), une connexion par
+  transfert parallèle, date de modification conservée (MDTM / MFMT), chmod via
+  `SITE CHMOD`. Le certificat TLS est vérifié avec le magasin du système ; un certificat
+  inconnu (auto-signé) est présenté avec son empreinte, comme une clé d'hôte SSH, et peut
+  être enregistré (`known_certs`).
 - Panneaux local / distant avec arborescence, filtre instantané (texte ou `*.log`),
   tri, colonnes redimensionnables, fichiers cachés, glisser-déposer dans les deux sens
   (et depuis le gestionnaire de fichiers du bureau), déplacement distant par
@@ -149,13 +156,20 @@ Un serveur de test (Docker) exige clé + TOTP :
 tests/server/run.sh
 ```
 
+Un second (vsftpd) sert FTP et FTPS (certificat auto-signé) sur `127.0.0.1:2121`,
+utilisateur `test`, mot de passe `test` :
+
+```bash
+tests/ftp/run.sh
+```
+
 ```bash
 cargo test --workspace
 ```
 
 L'intégration continue GitHub (`.github/workflows/ci.yml`) vérifie le formatage,
-Clippy (natif et wasm32) et lance tous les tests contre ce serveur Docker
-(`RUSTSCP_REQUIRE_SERVER=1` : son absence fait alors échouer le test). Sur une
+Clippy (natif et wasm32) et lance tous les tests contre ces serveurs Docker
+(`RUSTSCP_REQUIRE_SERVER=1` : leur absence fait alors échouer les tests). Sur une
 étiquette `v*` ou un lancement manuel, elle produit aussi les paquets `.deb` et AppImage.
 
 Débit (mode release) :
@@ -183,7 +197,8 @@ Hors de Tauri, `frontend/devshim.js` relie l'interface à cette passerelle HTTP
 ```
 shared/      types communs (sites, réglages, transferts, dialogues), utilitaires et i18n
 src-tauri/   ssh.rs (connexion + auth multi-facteurs), scp.rs (protocole SCP),
-             sftp.rs (SFTP en pipeline), remotefs.rs (SFTP / shell),
+             sftp.rs (SFTP en pipeline), remotefs.rs (SFTP / shell / FTP),
+             ftp.rs (FTP / FTPS, vérification du certificat TLS),
              transfer.rs (file parallèle, édition distante), sites.rs, config.rs,
              totp.rs, local.rs, commands.rs (commandes Tauri), ui.rs (événements)
 devbridge/   passerelle HTTP de développement (interface dans un navigateur)
@@ -191,7 +206,8 @@ frontend/    app.rs, panes.rs (listes et arborescences), queue.rs, dialogs.rs,
              sitemanager.rs, actions.rs, state.rs, layout.rs, icons.rs, styles.css
 ```
 
-Configuration : `~/.config/rustscp/` (`sites.json`, `settings.json`, `known_hosts`).
+Configuration : `~/.config/rustscp/` (`sites.json`, `settings.json`, `known_hosts`,
+`known_certs`).
 
 ## Licence
 

@@ -226,7 +226,7 @@ fn info(s: &Session) -> SessionInfo {
         home: s.home(),
         connected: s.is_connected(),
         shell_ok: s.shell_ok(),
-        sftp: true,
+        sftp: s.ftp().is_none(),
     }
 }
 

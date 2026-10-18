@@ -391,6 +391,8 @@ pub struct Session {
     shell: Arc<AtomicU8>,
     home: Mutex<String>,
     generation: AtomicU64,
+    /// Sessions FTP / FTPS (None : SSH).
+    ftp: Option<Arc<crate::ftp::Ftp>>,
 }
 
 impl Session {
@@ -402,7 +404,6 @@ impl Session {
     ) -> Arc<Self> {
         Arc::new(Session {
             id: NEXT_SESSION.fetch_add(1, Ordering::Relaxed),
-            site: Mutex::new(site),
             transient: Mutex::new(HashMap::new()),
             ui,
             secrets,
@@ -413,6 +414,9 @@ impl Session {
             shell: Arc::new(AtomicU8::new(0)),
             home: Mutex::new("/".into()),
             generation: AtomicU64::new(0),
+            ftp: rustscp_shared::proto_is_ftp(&site.protocol)
+                .then(|| Arc::new(crate::ftp::Ftp::new(&site))),
+            site: Mutex::new(site),
         })
     }
 
@@ -430,7 +434,18 @@ impl Session {
 
     /// Change le protocole de transfert (SCP / SFTP) sans se reconnecter.
     pub fn set_protocol(&self, protocol: &str) {
-        self.site.lock().unwrap().protocol = protocol.to_string();
+        if self.ftp.is_none() {
+            self.site.lock().unwrap().protocol = protocol.to_string();
+        }
+    }
+
+    /// Client FTP de la session (None pour SSH).
+    pub fn ftp(&self) -> Option<&Arc<crate::ftp::Ftp>> {
+        self.ftp.as_ref()
+    }
+
+    pub(crate) fn timeout(&self) -> Duration {
+        self.timeout
     }
 
     pub fn home(&self) -> String {
@@ -450,6 +465,9 @@ impl Session {
     }
 
     pub fn is_connected(&self) -> bool {
+        if let Some(f) = &self.ftp {
+            return f.is_connected();
+        }
         self.current().is_some_and(|c| !c.is_closed())
     }
 
@@ -457,7 +475,34 @@ impl Session {
     pub async fn connect(&self) -> Result<()> {
         let _guard = self.connect_lock.lock().await;
         self.closing.store(false, Ordering::SeqCst);
+        if let Some(f) = &self.ftp {
+            let home = f.connect(self).await?;
+            *self.home.lock().unwrap() = home.clone();
+            // pas de commandes shell en FTP
+            self.shell.store(2, Ordering::Relaxed);
+            self.log(
+                "status",
+                trf!(
+                    "Connecté. Répertoire courant : {home}",
+                    "Connected. Current directory: {home}"
+                ),
+            );
+            return Ok(());
+        }
         self.connect_locked().await
+    }
+
+    /// Connexion prête pour un transfert (FTP : chaque transfert ouvre la sienne).
+    pub async fn ensure_ready(&self) -> Result<()> {
+        if self.ftp.is_some() {
+            if self.closing.load(Ordering::SeqCst) {
+                return Err(Error::Connect(
+                    tr!("Session fermée", "Session closed").into(),
+                ));
+            }
+            return Ok(());
+        }
+        self.ensure_connected().await.map(|_| ())
     }
 
     /// Reconnexion transparente (appelée par les transferts et la navigation).
@@ -639,6 +684,9 @@ impl Session {
     pub async fn close(&self) {
         self.closing.store(true, Ordering::SeqCst);
         let _guard = self.connect_lock.lock().await;
+        if let Some(f) = &self.ftp {
+            f.close().await;
+        }
         self.drop_conn().await;
         self.log(
             "status",
@@ -699,7 +747,7 @@ impl Session {
     }
 
     // ------------------------------------------------------ authentification
-    fn secret(&self, kind: &'static str) -> String {
+    pub(crate) fn secret(&self, kind: &'static str) -> String {
         if let Some(v) = self
             .transient
             .lock()
@@ -713,7 +761,7 @@ impl Session {
         self.secrets.get(&id, kind)
     }
 
-    fn remember(&self, kind: &'static str, value: &str, persist: bool) {
+    pub(crate) fn remember(&self, kind: &'static str, value: &str, persist: bool) {
         self.transient
             .lock()
             .unwrap()
@@ -726,7 +774,7 @@ impl Session {
         }
     }
 
-    fn forget(&self, kind: &'static str) {
+    pub(crate) fn forget(&self, kind: &'static str) {
         self.transient.lock().unwrap().remove(kind);
     }
 
@@ -734,7 +782,7 @@ impl Session {
         format!("{}@{}:{}", site.user, site.host, site.port)
     }
 
-    async fn ask_secret(&self, title: &str, label: String) -> Result<(String, bool)> {
+    pub(crate) async fn ask_secret(&self, title: &str, label: String) -> Result<(String, bool)> {
         match self
             .ui
             .ask(PromptRequest::Secret {

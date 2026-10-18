@@ -9,8 +9,9 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 use rustscp_shared::util::{human_speed, rbasename, rparent};
 use rustscp_shared::{
-    AUTH_INTERACTIVE, AUTH_KEY_OTP, Direction, EditChanged, LogLine, PROTO_SCP, PromptEvent,
-    QuickEntry, Settings, Site, SitesFile, TransferFinished, auth_choices, auth_label,
+    AUTH_INTERACTIVE, AUTH_KEY_OTP, AUTH_PASSWORD, Direction, EditChanged, LogLine, PROTO_FTP,
+    PROTO_FTPS, PROTO_SCP, PromptEvent, QuickEntry, Settings, Site, SitesFile, TransferFinished,
+    auth_choices, auth_label, proto_is_ftp,
 };
 use serde::Deserialize;
 use serde_json::json;
@@ -286,13 +287,25 @@ fn QuickConnect() -> impl IntoView {
             return;
         }
         let mut text = text;
-        for scheme in ["sftp://", "scp://", "ssh://"] {
+        let mut protocol = PROTO_SCP;
+        for (scheme, proto) in [
+            ("sftp://", PROTO_SCP),
+            ("scp://", PROTO_SCP),
+            ("ssh://", PROTO_SCP),
+            ("ftps://", PROTO_FTPS),
+            ("ftp://", PROTO_FTP),
+        ] {
             if let Some(rest) = text.strip_prefix(scheme) {
                 text = rest.to_string();
+                protocol = proto;
             }
         }
+        let is_ftp = proto_is_ftp(protocol);
         let mut u = user.get_untracked().trim().to_string();
         let mut p = port.get_untracked();
+        if is_ftp && p == 22 {
+            p = 21;
+        }
         if let Some((a, b)) = text.rsplit_once('@') {
             u = a.to_string();
             text = b.to_string();
@@ -323,9 +336,13 @@ fn QuickConnect() -> impl IntoView {
             host: text.clone(),
             port: p,
             user: u.clone(),
-            auth: auth.get_untracked(),
+            auth: if is_ftp {
+                AUTH_PASSWORD.into()
+            } else {
+                auth.get_untracked()
+            },
             key_file: key.get_untracked().trim().to_string(),
-            protocol: PROTO_SCP.into(),
+            protocol: protocol.into(),
             id: format!("quick:{u}@{text}:{p}"),
             ..Default::default()
         };
@@ -335,6 +352,11 @@ fn QuickConnect() -> impl IntoView {
             user: u,
             auth: site.auth.clone(),
             key: site.key_file.clone(),
+            protocol: if is_ftp {
+                protocol.into()
+            } else {
+                String::new()
+            },
         };
         c.settings.update(|s| {
             s.quickconnect_history.retain(|h| *h != entry);
@@ -345,7 +367,11 @@ fn QuickConnect() -> impl IntoView {
         act::connect_site(c, site);
     };
     let apply = move |h: QuickEntry| {
-        host.set(h.host);
+        host.set(if proto_is_ftp(&h.protocol) {
+            format!("{}://{}", h.protocol, h.host)
+        } else {
+            h.host
+        });
         user.set(h.user);
         port.set(h.port);
         auth.set(if h.auth.is_empty() {

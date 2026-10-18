@@ -18,6 +18,7 @@ use rustscp_shared::{
 use tokio::sync::{Mutex as AsyncMutex, Notify};
 
 use crate::error::{Error, Result};
+use crate::ftp::Ftp;
 use crate::platform::{self, native_path, ui_path};
 use crate::scp;
 use crate::sftp::Sftp;
@@ -671,7 +672,7 @@ impl TransferManager {
     /// Ok(true) : transféré ; Ok(false) : ignoré (politique d'écrasement).
     async fn process(&self, job: &mut Job) -> Result<bool> {
         let session = job.session.clone();
-        session.ensure_connected().await?;
+        session.ensure_ready().await?;
         let preserve = self.settings.read().unwrap().preserve_times;
         let progress = job.progress.clone();
         let on_progress = |n: u64| progress.add(n);
@@ -715,7 +716,20 @@ impl TransferManager {
                 }
                 job.progress.reset();
                 job.begun = Some(Instant::now());
-                if Self::use_scp(&session) {
+                if let Some(ftp) = session.ftp().cloned() {
+                    job.protocol = session.site().protocol;
+                    ftp_download(
+                        &ftp,
+                        &session,
+                        &job.remote,
+                        &job.local,
+                        &job.progress,
+                        &on_progress,
+                        &cancelled,
+                        preserve,
+                    )
+                    .await?;
+                } else if Self::use_scp(&session) {
                     job.protocol = "scp".into();
                     let chan = session.open_channel().await?;
                     let size = scp::download(
@@ -777,7 +791,20 @@ impl TransferManager {
                 }
                 job.progress.reset();
                 job.begun = Some(Instant::now());
-                if Self::use_scp(&session) {
+                if let Some(ftp) = session.ftp().cloned() {
+                    job.protocol = session.site().protocol;
+                    let mut fh = File::open(&job.local)?;
+                    let mtime = preserve.then(|| platform::mtime(&st));
+                    ftp.upload(
+                        &session,
+                        &mut fh,
+                        &job.remote,
+                        mtime,
+                        &on_progress,
+                        &cancelled,
+                    )
+                    .await?;
+                } else if Self::use_scp(&session) {
                     job.protocol = "scp".into();
                     let chan = session.open_channel().await?;
                     scp::upload(
@@ -938,6 +965,52 @@ async fn sftp_download(
             .download(
                 remote,
                 &fh,
+                &|size| counters.size.store(size, Ordering::Relaxed),
+                progress,
+                cancelled,
+            )
+            .await?;
+        counters.size.store(size, Ordering::Relaxed);
+        if preserve && mtime > 0 {
+            let t = UNIX_EPOCH + Duration::from_secs(mtime as u64);
+            let _ = fh.set_times(
+                FileTimes::new()
+                    .set_modified(t)
+                    .set_accessed(SystemTime::now()),
+            );
+        }
+        drop(fh);
+        fs::rename(&part, local)?;
+        Ok(())
+    }
+    .await;
+    if res.is_err() {
+        let _ = fs::remove_file(&part);
+    }
+    res
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn ftp_download(
+    ftp: &Ftp,
+    session: &Session,
+    remote: &str,
+    local: &Path,
+    counters: &Progress,
+    progress: &(dyn Fn(u64) + Sync),
+    cancelled: &(dyn Fn() -> bool + Sync),
+    preserve: bool,
+) -> Result<()> {
+    let mut part = local.as_os_str().to_owned();
+    part.push(".rustscp-part");
+    let part = PathBuf::from(part);
+    let res = async {
+        let mut fh = File::create(&part)?;
+        let (size, mtime) = ftp
+            .download(
+                session,
+                remote,
+                &mut fh,
                 &|size| counters.size.store(size, Ordering::Relaxed),
                 progress,
                 cancelled,

@@ -98,6 +98,14 @@ pub const OTP_SECRET: &str = "secret";
 
 pub const PROTO_SCP: &str = "scp";
 pub const PROTO_SFTP: &str = "sftp";
+pub const PROTO_FTP: &str = "ftp";
+/// FTP sur TLS explicite (AUTH TLS).
+pub const PROTO_FTPS: &str = "ftps";
+
+/// FTP ou FTPS (authentification par mot de passe uniquement, port 21 par défaut).
+pub fn proto_is_ftp(protocol: &str) -> bool {
+    protocol == PROTO_FTP || protocol == PROTO_FTPS
+}
 
 pub const SECRET_PASSWORD: &str = "password";
 pub const SECRET_PASSPHRASE: &str = "passphrase";
@@ -202,6 +210,8 @@ pub struct QuickEntry {
     pub user: String,
     pub auth: String,
     pub key: String,
+    /// Vide : SCP (SSH) ; sinon ftp / ftps.
+    pub protocol: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]

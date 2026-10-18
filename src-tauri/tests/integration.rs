@@ -15,8 +15,9 @@ use rustscp_lib::totp;
 use rustscp_lib::transfer::{TransferManager, expand_download, expand_upload};
 use rustscp_lib::ui::{BoxFut, Ui};
 use rustscp_shared::{
-    AUTH_KEY_OTP, OTP_ASK, OTP_SECRET, PROTO_SCP, PROTO_SFTP, PromptReply, PromptRequest,
-    RemoteItem, SECRET_OTP, SECRET_PASSPHRASE, Settings, Site, TransferStatus,
+    AUTH_KEY_OTP, AUTH_PASSWORD, OTP_ASK, OTP_SECRET, PROTO_FTP, PROTO_FTPS, PROTO_SCP, PROTO_SFTP,
+    PromptReply, PromptRequest, RemoteItem, SECRET_OTP, SECRET_PASSPHRASE, SECRET_PASSWORD,
+    Settings, Site, TransferStatus,
 };
 use sha2::{Digest, Sha256};
 
@@ -32,8 +33,29 @@ fn key_path() -> String {
 }
 
 fn server_up() -> bool {
-    std::net::TcpStream::connect_timeout(&"127.0.0.1:2222".parse().unwrap(), Duration::from_secs(1))
-        .is_ok()
+    port_open(2222)
+}
+
+/// Serveur FTP de test (tests/ftp/run.sh).
+fn ftp_up() -> bool {
+    port_open(2121)
+}
+
+fn port_open(port: u16) -> bool {
+    std::net::TcpStream::connect_timeout(
+        &std::net::SocketAddr::from(([127, 0, 0, 1], port)),
+        Duration::from_secs(1),
+    )
+    .is_ok()
+}
+
+fn require_server(name: &str) {
+    // en CI, l'absence du serveur est une erreur et non un test ignoré
+    assert!(
+        std::env::var_os("RUSTSCP_REQUIRE_SERVER").is_none(),
+        "serveur de test {name} absent alors que RUSTSCP_REQUIRE_SERVER est défini"
+    );
+    eprintln!("serveur de test {name} non démarré : test ignoré");
 }
 
 #[derive(Default)]
@@ -171,6 +193,10 @@ fn random(n: usize) -> Vec<u8> {
 
 async fn transfers_roundtrip(protocol: &str) {
     let (session, ui) = make_session(protocol, OTP_SECRET).await;
+    transfers_roundtrip_on(session, ui, protocol).await;
+}
+
+async fn transfers_roundtrip_on(session: Arc<Session>, ui: Arc<TestUi>, protocol: &str) {
     let tmp = tempfile::tempdir().unwrap();
     let src = tmp.path().join("src");
     std::fs::create_dir_all(src.join("sub/deep")).unwrap();
@@ -304,9 +330,11 @@ async fn transfers_roundtrip(protocol: &str) {
         .await
         .unwrap();
     let e = session
-        .stat(&format!("{remote_root}/renommé.txt"))
+        .listdir(&remote_root)
         .await
         .unwrap()
+        .into_iter()
+        .find(|e| e.name == "renommé.txt")
         .unwrap();
     assert_eq!(e.mode & 0o777, 0o600);
     session.remove(&remote_root, true).await.unwrap();
@@ -484,5 +512,54 @@ fn ppk_keys() {
     for pass in [None, Some("mauvaise")] {
         let err = russh::keys::load_secret_key(fixture("test_key_v3.ppk"), pass).unwrap_err();
         assert!(rustscp_lib::ssh::key_needs_passphrase(&err), "{err}");
+    }
+}
+
+async fn ftp_session(
+    protocol: &str,
+    password: &str,
+) -> (Arc<Session>, Arc<TestUi>, Result<(), String>) {
+    let site = Site {
+        name: "ftp".into(),
+        host: "127.0.0.1".into(),
+        port: 2121,
+        user: "test".into(),
+        auth: AUTH_PASSWORD.into(),
+        use_agent: false,
+        protocol: protocol.into(),
+        id: format!("test-{protocol}-{password}"),
+        ..Default::default()
+    };
+    let secrets = Arc::new(SecretStore::in_memory());
+    secrets.set(&site.id, SECRET_PASSWORD, password);
+    let ui = Arc::new(TestUi::default());
+    let session = Session::new(site, ui.clone(), secrets, 15);
+    let res = session.connect().await.map_err(|e| e.to_string());
+    (session, ui, res)
+}
+
+/// FTP et FTPS (certificat auto-signé accepté une fois) contre vsftpd.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn ftp() {
+    rustscp_shared::set_lang(rustscp_shared::Lang::Fr);
+    if !ftp_up() {
+        require_server("FTP (tests/ftp/run.sh)");
+        return;
+    }
+    // mot de passe refusé : redemandé, puis saisie annulée
+    let (session, _, res) = ftp_session(PROTO_FTP, "mauvais").await;
+    assert!(res.is_err());
+    assert!(!session.is_connected());
+
+    for proto in [PROTO_FTP, PROTO_FTPS] {
+        let (session, ui, res) = ftp_session(proto, "test").await;
+        res.unwrap();
+        assert!(session.is_connected());
+        assert_eq!(session.home(), "/home/test");
+        assert_eq!(session.shell_ok(), Some(false));
+        if proto == PROTO_FTPS {
+            assert!(ui.joined().contains("TLS"), "{}", ui.joined());
+        }
+        transfers_roundtrip_on(session, ui, proto).await;
     }
 }

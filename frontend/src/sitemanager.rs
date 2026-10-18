@@ -7,8 +7,9 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 use rustscp_shared::util::parse_otp_secret;
 use rustscp_shared::{
-    OTP_ASK, OTP_SECRET, PROTO_SCP, PROTO_SFTP, SECRET_OTP, SECRET_PASSPHRASE, SECRET_PASSWORD,
-    Site, SitesFile, TotpPreview, auth_choices, auth_uses_key, auth_uses_otp, auth_uses_password,
+    AUTH_PASSWORD, OTP_ASK, OTP_SECRET, PROTO_FTP, PROTO_FTPS, PROTO_SCP, PROTO_SFTP, SECRET_OTP,
+    SECRET_PASSPHRASE, SECRET_PASSWORD, Site, SitesFile, TotpPreview, auth_choices, auth_uses_key,
+    auth_uses_otp, auth_uses_password, proto_is_ftp,
 };
 use serde_json::{Value, json};
 
@@ -445,6 +446,7 @@ pub fn SiteManager(dialog_id: u64, select: Option<String>) -> impl IntoView {
     let key_on = Signal::derive(move || is_site.get() && auth_uses_key(&auth.get()));
     let pw_on = Signal::derive(move || is_site.get() && auth_uses_password(&auth.get()));
     let otp_on = Signal::derive(move || is_site.get() && auth_uses_otp(&auth.get()));
+    let ftp = Signal::derive(move || form.with(|f| proto_is_ftp(&f.protocol)));
     let otp_auto = Signal::derive(move || otp_on.get() && form.with(|f| f.otp_mode == OTP_SECRET));
 
     let tree = move || {
@@ -543,9 +545,11 @@ pub fn SiteManager(dialog_id: u64, select: Option<String>) -> impl IntoView {
                 </select>
                 <span>{tr!("Protocole :", "Protocol:")}</span>
                 <select disabled=move || !is_site.get()
-                    on:change=move |ev| { let v = event_target_value(&ev); form.update(|f| f.protocol = v) }>
+                    on:change=move |ev| { let v = event_target_value(&ev); form.update(|f| set_protocol(f, v)) }>
                     <option value=PROTO_SCP prop:selected=move || form.with(|f| f.protocol == PROTO_SCP)>{tr!("SCP — protocole SCP natif (navigation via SFTP/shell)", "SCP — native SCP protocol (browsing via SFTP/shell)")}</option>
                     <option value=PROTO_SFTP prop:selected=move || form.with(|f| f.protocol == PROTO_SFTP)>"SFTP — SSH File Transfer Protocol"</option>
+                    <option value=PROTO_FTP prop:selected=move || form.with(|f| f.protocol == PROTO_FTP)>{tr!("FTP — sans chiffrement", "FTP — unencrypted")}</option>
+                    <option value=PROTO_FTPS prop:selected=move || form.with(|f| f.protocol == PROTO_FTPS)>{tr!("FTPS — FTP sur TLS explicite", "FTPS — FTP over explicit TLS")}</option>
                 </select>
                 <span>{tr!("Hôte :", "Host:")}</span>
                 <span class="inline grow">
@@ -558,7 +562,7 @@ pub fn SiteManager(dialog_id: u64, select: Option<String>) -> impl IntoView {
                 <span>{tr!("Identifiant :", "Username:")}</span>
                 {text_field(|f| f.user.clone(), |f, v| f.user = v, "")}
                 <span>{tr!("Authentification :", "Authentication:")}</span>
-                <select disabled=move || !is_site.get()
+                <select disabled=move || !is_site.get() || ftp.get()
                     on:change=move |ev| { let v = event_target_value(&ev); form.update(|f| f.auth = v) }>
                     {auth_choices().into_iter().map(|(k, l)| view! {
                         <option value=k prop:selected=move || form.with(|f| f.auth == k)>{l}</option>
@@ -630,13 +634,13 @@ pub fn SiteManager(dialog_id: u64, select: Option<String>) -> impl IntoView {
                 </span>
                 <span>{tr!("Keepalive SSH :", "SSH keepalive:")}</span>
                 <span class="inline">
-                    <input type="number" min="0" max="3600" class="narrow" disabled=move || !is_site.get()
+                    <input type="number" min="0" max="3600" class="narrow" disabled=move || !is_site.get() || ftp.get()
                         prop:value=move || form.with(|f| f.keepalive.to_string())
                         on:input=move |ev| { if let Ok(n) = event_target_value(&ev).parse::<u32>() { form.update(|f| f.keepalive = n.min(3600)) } }/>
                     " s " <span class="muted">{tr!("(0 = désactivé)", "(0 = disabled)")}</span>
                 </span>
             </div>
-            <label class="check"><input type="checkbox" disabled=move || !is_site.get() prop:checked=move || form.with(|f| f.compression)
+            <label class="check"><input type="checkbox" disabled=move || !is_site.get() || ftp.get() prop:checked=move || form.with(|f| f.compression)
                 on:change=move |ev| { let on = event_target_checked(&ev); form.update(|f| f.compression = on) }/>
                 {tr!("Compression SSH (utile sur liaison lente)", "SSH compression (useful on slow links)")}</label>
         }
@@ -684,5 +688,21 @@ pub fn SiteManager(dialog_id: u64, select: Option<String>) -> impl IntoView {
                 <button type="button" class="primary" disabled=move || !is_site.get() on:click=move |_| connect()>{icon("connect")}{tr!("Connexion", "Connect")}</button>
             </div>
         </Modal>
+    }
+}
+
+/// Change le protocole ; passer en FTP impose le mot de passe et le port 21 (et inversement).
+fn set_protocol(f: &mut Site, protocol: String) {
+    let was_ftp = proto_is_ftp(&f.protocol);
+    f.protocol = protocol;
+    match (was_ftp, proto_is_ftp(&f.protocol)) {
+        (false, true) => {
+            if f.port == 22 {
+                f.port = 21;
+            }
+            f.auth = AUTH_PASSWORD.into();
+        }
+        (true, false) if f.port == 21 => f.port = 22,
+        _ => {}
     }
 }

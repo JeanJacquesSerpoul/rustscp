@@ -345,10 +345,13 @@ fn prompt_view(id: u64, pid: u64, request: PromptRequest) -> AnyView {
             old_fingerprint,
         } => {
             let changed = status == "changed";
-            let title = if changed {
-                tr!("Clé d'hôte modifiée !", "Host key changed!")
-            } else {
-                tr!("Clé d'hôte inconnue", "Unknown host key")
+            // certificat TLS d'un serveur FTPS (même boîte de dialogue que les clés SSH)
+            let tls = key_type.contains("TLS");
+            let title = match (changed, tls) {
+                (true, false) => tr!("Clé d'hôte modifiée !", "Host key changed!"),
+                (false, false) => tr!("Clé d'hôte inconnue", "Unknown host key"),
+                (true, true) => tr!("Certificat TLS modifié !", "TLS certificate changed!"),
+                (false, true) => tr!("Certificat TLS non reconnu", "Untrusted TLS certificate"),
             };
             let default_btn = NodeRef::<html::Button>::new();
             autofocus(default_btn);
@@ -365,7 +368,7 @@ fn prompt_view(id: u64, pid: u64, request: PromptRequest) -> AnyView {
                 view! {
                     <div class="hostkey-head">
                         {icon("shield")}
-                        <div>{tr!("La clé d'hôte du serveur ", "The host key of server ")} <b>{host.clone()}</b> {tr!(" est inconnue.", " is unknown.")}<br/>
+                        <div>{if tls { tr!("Le certificat TLS du serveur ", "The TLS certificate of server ") } else { tr!("La clé d'hôte du serveur ", "The host key of server ") }} <b>{host.clone()}</b> {if tls { tr!(" n'est pas reconnu par le système (certificat auto-signé ?).", " is not trusted by the system (self-signed certificate?).") } else { tr!(" est inconnue.", " is unknown.") }}<br/>
                         {tr!("Vérifiez l'empreinte auprès de l'administrateur avant de faire confiance au serveur.", "Check the fingerprint with the administrator before trusting the server.")}</div>
                     </div>
                 }
@@ -685,7 +688,7 @@ fn about_view(id: u64) -> AnyView {
                 {logo(56)}
                 <div>
                     <h3>{format!("{} {}", info.name, info.version)}</h3>
-                    <p>{tr!("Client SCP/SFTP graphique pour Linux et Windows, inspiré de FileZilla.", "Graphical SCP/SFTP client for Linux and Windows, inspired by FileZilla.")}</p>
+                    <p>{tr!("Client SCP/SFTP/FTP graphique pour Linux et Windows, inspiré de FileZilla.", "Graphical SCP/SFTP/FTP client for Linux and Windows, inspired by FileZilla.")}</p>
                     <ul>
                         <li>{tr!("Authentification ", "Simultaneous ")} <b>{tr!("clé SSH + code TOTP", "SSH key + TOTP code")}</b> {tr!(" simultanée (", " authentication (")}
                             <code>"AuthenticationMethods publickey,keyboard-interactive"</code>")"</li>

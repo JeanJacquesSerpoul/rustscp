@@ -1,4 +1,4 @@
-# RustSCP — SCP/SFTP client for Linux and Windows
+# RustSCP — SCP/SFTP/FTP client for Linux and Windows
 
 [![CI](https://github.com/JeanJacquesSerpoul/rustscp/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/JeanJacquesSerpoul/rustscp/actions/workflows/ci.yml)
 
@@ -9,7 +9,8 @@ servers that require **an SSH key and a TOTP code at the same time**
 (`AuthenticationMethods publickey,keyboard-interactive` + `pam_google_authenticator`),
 which FileZilla does not support.
 
-- native Rust networking core (`russh`, `russh-sftp`): SSH, SCP, SFTP, transfer queue;
+- native Rust networking core (`russh`, `russh-sftp`, `suppaftp`): SSH, SCP, SFTP, FTP/FTPS,
+  transfer queue;
 - Leptos user interface compiled to WebAssembly, displayed by Tauri 2 (WebKitGTK);
 - types and helpers shared between both (`shared/`).
 
@@ -100,6 +101,12 @@ separate SSH channels over **a single authenticated connection**.
 - **Native SCP** protocol (implemented directly on the channel, no external program)
   or **SFTP**; browsing via SFTP, or via shell commands (`find`) on "SCP only"
   servers; automatic fallback to SFTP if the server refuses commands.
+- **FTP** and **FTPS** (explicit TLS, `AUTH TLS`) with a password or anonymous access
+  (`anonymous`): passive mode, MLSD or LIST listings (Unix and DOS), one connection per
+  parallel transfer, modification time kept (MDTM / MFMT), chmod through `SITE CHMOD`.
+  The TLS certificate is checked against the system store; an unknown (self-signed)
+  certificate is shown with its fingerprint, like an SSH host key, and can be saved
+  (`known_certs`).
 - Local / remote panes with directory tree, instant filter (text or `*.log`),
   sorting, resizable columns, hidden files, drag and drop in both directions
   (including from the desktop file manager), remote moves by drag and drop.
@@ -149,13 +156,20 @@ A test server (Docker) requires key + TOTP:
 tests/server/run.sh
 ```
 
+A second one (vsftpd) serves FTP and FTPS (self-signed certificate) on `127.0.0.1:2121`,
+user `test`, password `test`:
+
+```bash
+tests/ftp/run.sh
+```
+
 ```bash
 cargo test --workspace
 ```
 
 GitHub continuous integration (`.github/workflows/ci.yml`) checks formatting and
-Clippy (native and wasm32) and runs all tests against this Docker server
-(`RUSTSCP_REQUIRE_SERVER=1`: the test then fails if the server is missing). On a
+Clippy (native and wasm32) and runs all tests against these Docker servers
+(`RUSTSCP_REQUIRE_SERVER=1`: the tests then fail if a server is missing). On a
 `v*` tag or a manual run, it also builds the `.deb` and AppImage packages.
 
 Throughput (release mode):
@@ -183,7 +197,8 @@ Outside Tauri, `frontend/devshim.js` connects the interface to this HTTP bridge
 ```
 shared/      common types (sites, settings, transfers, dialogs), helpers and i18n
 src-tauri/   ssh.rs (connection + multi-factor auth), scp.rs (SCP protocol),
-             sftp.rs (pipelined SFTP), remotefs.rs (SFTP / shell),
+             sftp.rs (pipelined SFTP), remotefs.rs (SFTP / shell / FTP),
+             ftp.rs (FTP / FTPS, TLS certificate checking),
              transfer.rs (parallel queue, remote editing), sites.rs, config.rs,
              totp.rs, local.rs, commands.rs (Tauri commands), ui.rs (events)
 devbridge/   development HTTP bridge (interface in a browser)
@@ -191,7 +206,8 @@ frontend/    app.rs, panes.rs (lists and trees), queue.rs, dialogs.rs,
              sitemanager.rs, actions.rs, state.rs, layout.rs, icons.rs, styles.css
 ```
 
-Configuration: `~/.config/rustscp/` (`sites.json`, `settings.json`, `known_hosts`).
+Configuration: `~/.config/rustscp/` (`sites.json`, `settings.json`, `known_hosts`,
+`known_certs`).
 
 ## License
 

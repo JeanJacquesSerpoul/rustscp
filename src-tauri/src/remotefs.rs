@@ -58,6 +58,9 @@ impl Session {
     }
 
     pub async fn realpath(&self, path: &str) -> Result<String> {
+        if let Some(f) = self.ftp() {
+            return f.realpath(self, path).await;
+        }
         let (conn, sftp) = self.browse_sftp().await?;
         if let Some(s) = sftp {
             let r = s.realpath(path).await;
@@ -76,6 +79,9 @@ impl Session {
     }
 
     pub async fn listdir(&self, path: &str) -> Result<Vec<Entry>> {
+        if let Some(f) = self.ftp() {
+            return f.list(self, path).await;
+        }
         let (conn, sftp) = self.browse_sftp().await?;
         if let Some(s) = sftp {
             let r = s.list(path).await;
@@ -127,6 +133,9 @@ impl Session {
 
     /// None si le chemin n'existe pas.
     pub async fn stat(&self, path: &str) -> Result<Option<Entry>> {
+        if let Some(f) = self.ftp() {
+            return f.stat(self, path).await;
+        }
         let (conn, sftp) = self.browse_sftp().await?;
         if let Some(s) = sftp {
             let r = s.stat(path).await;
@@ -202,6 +211,9 @@ impl Session {
 
     // ------------------------------------------------------- modifications
     pub async fn mkdir(&self, path: &str, parents: bool) -> Result<()> {
+        if let Some(f) = self.ftp() {
+            return f.mkdir(self, path, parents).await;
+        }
         let (conn, sftp) = self.browse_sftp().await?;
         if let Some(s) = sftp {
             let r = if parents {
@@ -252,6 +264,9 @@ impl Session {
     }
 
     pub async fn rename(&self, src: &str, dst: &str) -> Result<()> {
+        if let Some(f) = self.ftp() {
+            return f.rename(self, src, dst).await;
+        }
         let (conn, sftp) = self.browse_sftp().await?;
         if let Some(s) = sftp {
             let r = s.rename(src, dst).await.map_err(|e| {
@@ -271,6 +286,9 @@ impl Session {
     }
 
     pub async fn chmod(&self, path: &str, mode: u32, recursive: bool) -> Result<()> {
+        if let Some(f) = self.ftp() {
+            return f.chmod(self, path, mode, recursive).await;
+        }
         if recursive && self.shell_ok() == Some(true) {
             return self
                 .sh(
@@ -320,6 +338,9 @@ impl Session {
     }
 
     pub async fn remove(&self, path: &str, is_dir: bool) -> Result<()> {
+        if let Some(f) = self.ftp() {
+            return f.remove(self, path, is_dir).await;
+        }
         if is_dir && self.shell_ok() == Some(true) {
             return self
                 .sh(&format!("rm -rf -- {}", q(path)), Duration::from_secs(3600))
@@ -374,6 +395,9 @@ impl Session {
     }
 
     pub async fn touch(&self, path: &str) -> Result<()> {
+        if let Some(f) = self.ftp() {
+            return f.touch(self, path).await;
+        }
         let (conn, sftp) = self.browse_sftp().await?;
         if let Some(s) = sftp {
             let r = s.touch(path).await;
