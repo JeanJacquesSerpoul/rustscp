@@ -1,6 +1,6 @@
 [package]
 name = "rustscp"
-description = "Client SCP/SFTP graphique pour Linux inspiré de FileZilla, avec authentification clé SSH + TOTP simultanée"
+description = "Client SCP/SFTP graphique pour Linux et Windows inspiré de FileZilla, avec authentification clé SSH + TOTP simultanée"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

@@ -1,4 +1,4 @@
-# RustSCP — client SCP/SFTP pour Linux
+# RustSCP — client SCP/SFTP pour Linux et Windows
 
 [![CI](https://github.com/JeanJacquesSerpoul/rustscp/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/JeanJacquesSerpoul/rustscp/actions/workflows/ci.yml)
 
