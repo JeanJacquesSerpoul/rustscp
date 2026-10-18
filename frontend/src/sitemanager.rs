@@ -263,7 +263,6 @@ pub fn SiteManager(dialog_id: u64, select: Option<String>) -> impl IntoView {
             id: random_id(),
             name: tr!("Nouveau site", "New site").into(),
             folder: target_folder(),
-            user: c.info.get_untracked().user,
             ..Default::default()
         };
         let id = site.id.clone();

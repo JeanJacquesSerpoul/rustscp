@@ -1001,11 +1001,16 @@ impl Session {
 
     async fn authenticate(&self, handle: &mut Handle<ClientHandler>, site: &Site) -> Result<()> {
         use russh::client::AuthResult;
-        let user = if site.user.is_empty() {
-            crate::platform::user_name()
-        } else {
-            site.user.clone()
-        };
+        let user = site.user.trim().to_string();
+        if user.is_empty() {
+            return Err(Error::Auth(
+                tr!(
+                    "Identifiant manquant : renseignez l'utilisateur du compte distant",
+                    "Missing username: enter the remote account's user"
+                )
+                .into(),
+            ));
+        }
         let all = || {
             MethodSet::from(
                 &[

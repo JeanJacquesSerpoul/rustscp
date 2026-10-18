@@ -265,6 +265,7 @@ fn QuickConnect() -> impl IntoView {
     let auth = RwSignal::new(AUTH_KEY_OTP.to_string());
     let key = RwSignal::new(String::new());
     let host_input = NodeRef::<html::Input>::new();
+    let user_input = NodeRef::<html::Input>::new();
     Effect::new(move |_| {
         let k = c.info.with(|i| i.default_key.clone());
         if key.get_untracked().is_empty() {
@@ -310,11 +311,13 @@ fn QuickConnect() -> impl IntoView {
             p = n;
             text = h.to_string();
         }
-        let u = if u.is_empty() {
-            c.info.get_untracked().user
-        } else {
-            u
-        };
+        // pas d'identifiant par défaut : celui du poste local est rarement le bon
+        if u.is_empty() {
+            if let Some(el) = user_input.get_untracked() {
+                let _ = el.focus();
+            }
+            return;
+        }
         let site = Site {
             name: format!("{u}@{text}"),
             host: text.clone(),
@@ -410,7 +413,7 @@ fn QuickConnect() -> impl IntoView {
             <input type="text" class="qc-host" placeholder=tr!("utilisateur@hôte:port", "user@host:port") spellcheck="false" node_ref=host_input
                 prop:value=host on:input=move |ev| host.set(event_target_value(&ev)) on:keydown=enter/>
             <label>{tr!("Identifiant :", "Username:")}</label>
-            <input type="text" class="qc-user" placeholder=move || c.info.with(|i| i.user.clone()) spellcheck="false"
+            <input type="text" class="qc-user" placeholder=tr!("utilisateur", "user") spellcheck="false" node_ref=user_input
                 prop:value=user on:input=move |ev| user.set(event_target_value(&ev)) on:keydown=enter/>
             <label>{tr!("Port :", "Port:")}</label>
             <input type="number" class="qc-port" min="1" max="65535" prop:value=move || port.get().to_string()
