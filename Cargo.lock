@@ -4877,7 +4877,7 @@ dependencies = [
 
 [[package]]
 name = "rustscp"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "anyhow",
  "bytes",
@@ -4911,7 +4911,7 @@ dependencies = [
 
 [[package]]
 name = "rustscp-devbridge"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "rustscp",
  "rustscp-shared",
@@ -4924,14 +4924,14 @@ dependencies = [
 
 [[package]]
 name = "rustscp-shared"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "rustscp-ui"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "console_error_panic_hook",
  "futures",

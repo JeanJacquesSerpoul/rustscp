@@ -4,7 +4,7 @@ members = ["shared", "frontend", "src-tauri", "devbridge"]
 default-members = ["src-tauri"]
 
 [workspace.package]
-version = "1.0.1"
+version = "1.0.2"
 edition = "2024"
 license = "MIT"
 authors = ["Jean-Jacques Serpoul <serpoul@gmail.com>"]
