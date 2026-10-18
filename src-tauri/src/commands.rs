@@ -28,21 +28,11 @@ pub struct AppState {
     pub secrets: Arc<SecretStore>,
     pub sessions: Mutex<HashMap<u64, Arc<Session>>>,
     pub transfers: Arc<TransferManager>,
-    pub imported: Vec<String>,
 }
 
 impl AppState {
-    pub fn new(
-        ui: Arc<dyn Ui>,
-        hub: Arc<PromptHub>,
-        secrets: Arc<SecretStore>,
-        imported: Vec<String>,
-    ) -> Self {
+    pub fn new(ui: Arc<dyn Ui>, hub: Arc<PromptHub>, secrets: Arc<SecretStore>) -> Self {
         let settings = Arc::new(RwLock::new(config::load_settings()));
-        if imported.iter().any(|f| f == "sites.json") {
-            let n = secrets.import_wscp(&sites::load_sites());
-            log::info!("{n} secret(s) importé(s) depuis WSCP");
-        }
         let transfers = TransferManager::new(settings.clone(), ui.clone());
         AppState {
             ui,
@@ -51,7 +41,6 @@ impl AppState {
             secrets,
             sessions: Mutex::new(HashMap::new()),
             transfers,
-            imported,
         }
     }
 
@@ -83,7 +72,6 @@ pub struct AppInfo {
     default_key: String,
     home: String,
     user: String,
-    imported: Vec<String>,
 }
 
 #[tauri::command(rename_all = "snake_case")]
@@ -101,7 +89,6 @@ pub fn app_info(state: State<'_, AppState>) -> AppInfo {
         default_key: local::default_key(),
         home: local::home().to_string_lossy().into_owned(),
         user: std::env::var("USER").unwrap_or_default(),
-        imported: state.imported.clone(),
     }
 }
 

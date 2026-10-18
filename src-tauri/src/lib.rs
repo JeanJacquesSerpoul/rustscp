@@ -1,4 +1,4 @@
-//! RustSCP — client SCP/SFTP graphique (clone de WSCP en Rust : Tauri + Leptos).
+//! RustSCP — client SCP/SFTP graphique (Rust : Tauri + Leptos).
 
 pub mod commands;
 pub mod config;
@@ -25,15 +25,9 @@ pub fn run() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .setup(|app| {
-            let imported = config::import_from_wscp();
             let hub = Arc::new(ui::PromptHub::default());
             let ui = Arc::new(ui::TauriUi::new(app.handle().clone(), hub.clone()));
-            app.manage(AppState::new(
-                ui,
-                hub,
-                Arc::new(sites::SecretStore::new()),
-                imported,
-            ));
+            app.manage(AppState::new(ui, hub, Arc::new(sites::SecretStore::new())));
             Ok(())
         })
         .on_window_event(|window, event| {

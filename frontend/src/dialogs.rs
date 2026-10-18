@@ -658,7 +658,7 @@ fn about_view(id: u64) -> AnyView {
                 {logo(56)}
                 <div>
                     <h3>{format!("{} {}", info.name, info.version)}</h3>
-                    <p>"Client SCP/SFTP graphique pour Linux, inspiré de FileZilla (clone de WSCP)."</p>
+                    <p>"Client SCP/SFTP graphique pour Linux, inspiré de FileZilla."</p>
                     <ul>
                         <li>"Authentification " <b>"clé SSH + code TOTP"</b> " simultanée ("
                             <code>"AuthenticationMethods publickey,keyboard-interactive"</code>")"</li>

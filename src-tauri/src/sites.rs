@@ -1,7 +1,6 @@
 //! Gestionnaire de sites : profils de connexion et secrets associés.
 //!
-//! Les profils sont stockés en JSON (~/.config/rustscp/sites.json, même format
-//! que WSCP). Les secrets (mot de passe, phrase de passe de la clé, secret
+//! Les profils sont stockés en JSON (~/.config/rustscp/sites.json). Les secrets (mot de passe, phrase de passe de la clé, secret
 //! TOTP) ne sont jamais écrits en clair : ils vont dans le trousseau du système
 //! (Secret Service / KWallet) lorsqu'il est disponible.
 
@@ -34,7 +33,6 @@ pub struct SecretStore {
 }
 
 const SERVICE: &str = "rustscp";
-const WSCP_SERVICE: &str = "wscp";
 
 fn key(site_id: &str, kind: &str) -> String {
     format!("{site_id}:{kind}")
@@ -134,28 +132,5 @@ impl SecretStore {
                 self.set(dst, kind, &value);
             }
         }
-    }
-
-    /// Reprend les secrets enregistrés par WSCP pour les sites importés.
-    pub fn import_wscp(&self, sites: &SitesFile) -> usize {
-        if !self.available {
-            return 0;
-        }
-        let mut n = 0;
-        for site in &sites.sites {
-            for kind in SECRET_KINDS {
-                let Some(old) = Self::entry(WSCP_SERVICE, &site.id, kind) else {
-                    continue;
-                };
-                if let Ok(value) = old.get_password()
-                    && !value.is_empty()
-                    && self.get(&site.id, kind).is_empty()
-                    && self.set(&site.id, kind, &value)
-                {
-                    n += 1;
-                }
-            }
-        }
-        n
     }
 }

@@ -20,7 +20,6 @@ pub struct AppInfo {
     pub default_key: String,
     pub home: String,
     pub user: String,
-    pub imported: Vec<String>,
 }
 
 // ------------------------------------------------------------------ journal

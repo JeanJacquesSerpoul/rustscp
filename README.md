@@ -2,8 +2,7 @@
 
 [![CI](https://github.com/JeanJacquesSerpoul/rustscp/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/JeanJacquesSerpoul/rustscp/actions/workflows/ci.yml)
 
-Clone en **Rust · Tauri · Leptos** de WSCP (Python · PyQt6 · Paramiko) :
-un client graphique inspiré de FileZilla, conçu pour les serveurs qui exigent
+Client graphique en **Rust · Tauri · Leptos**, inspiré de FileZilla, conçu pour les serveurs qui exigent
 **une clé SSH et un code TOTP en même temps**
 (`AuthenticationMethods publickey,keyboard-interactive` + `pam_google_authenticator`),
 ce que FileZilla ne gère pas.
@@ -26,13 +25,6 @@ Prérequis : Rust stable, cible `wasm32-unknown-unknown`, `trunk`, `tauri-cli` 2
 WebKitGTK 4.1 et OpenSSL (Debian : `libwebkit2gtk-4.1-dev libssl-dev libdbus-1-dev`).
 
 Développement : `cargo tauri dev`.
-
-## Reprise de WSCP
-
-Au premier lancement, RustSCP reprend la configuration de WSCP s'il la trouve
-(`~/.config/wscp/` : `sites.json`, `settings.json`, `known_hosts`) ainsi que les
-secrets des sites enregistrés dans le trousseau. Le format de `sites.json` est
-identique : les profils restent échangeables entre les deux applications.
 
 ## Authentification multi-facteurs
 

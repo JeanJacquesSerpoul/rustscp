@@ -60,7 +60,7 @@ jobs:
             if (exec 3<>/dev/tcp/127.0.0.1/2222) 2>/dev/null; then exit 0; fi
             sleep 1
           done
-          docker logs wscp-test-sshd
+          docker logs rustscp-test-sshd
           exit 1
 
       - name: Tests (unitaires et intégration)
@@ -70,7 +70,7 @@ jobs:
 
       - name: Journal du serveur de test
         if: failure()
-        run: docker logs wscp-test-sshd || true
+        run: docker logs rustscp-test-sshd || true
 
   bundle:
     name: Paquets (.deb, AppImage)

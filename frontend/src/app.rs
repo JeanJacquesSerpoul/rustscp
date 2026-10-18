@@ -836,15 +836,6 @@ pub fn App() -> impl IntoView {
             "status",
             format!("{} {} prêt. Secrets : {backend}", info.name, info.version),
         );
-        if !info.imported.is_empty() {
-            c.log(
-                "status",
-                format!(
-                    "Configuration importée depuis WSCP : {}",
-                    info.imported.join(", ")
-                ),
-            );
-        }
     });
 
     // événements du cœur

@@ -97,7 +97,7 @@ pub fn auth_uses_otp(auth: &str) -> bool {
     )
 }
 
-/// Profil de connexion (format JSON compatible avec WSCP).
+/// Profil de connexion (sites.json).
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(default)]
 pub struct Site {

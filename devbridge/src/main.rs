@@ -82,7 +82,7 @@ async fn dispatch(st: &AppState, cmd: &str, a: Value) -> Result<Value, CmdError>
             "name": APP_NAME, "version": VERSION,
             "secrets": { "available": st.secrets.available, "name": st.secrets.backend_name },
             "default_key": local::default_key(), "home": local::home(),
-            "user": std::env::var("USER").unwrap_or_default(), "imported": st.imported,
+            "user": std::env::var("USER").unwrap_or_default()
         })),
         "settings_get" => Ok(json!(*st.settings.read().unwrap())),
         "settings_set" => {
@@ -311,12 +311,7 @@ fn main() {
     } else {
         sites::SecretStore::new()
     };
-    let state = Arc::new(AppState::new(
-        ui.clone(),
-        hub,
-        Arc::new(secrets),
-        Vec::new(),
-    ));
+    let state = Arc::new(AppState::new(ui.clone(), hub, Arc::new(secrets)));
     let server = tiny_http::Server::http("127.0.0.1:1421").expect("port 1421");
     eprintln!("Passerelle RustSCP sur http://127.0.0.1:1421");
     for mut req in server.incoming_requests() {
