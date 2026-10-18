@@ -1,0 +1,13 @@
+[Desktop Entry]
+Categories={{categories}}
+Name=RustSCP
+GenericName=SCP/SFTP client
+GenericName[fr]=Client SCP/SFTP
+Comment=SCP/SFTP transfers with SSH key + TOTP code
+Comment[fr]=Transferts SCP/SFTP avec clé SSH + code TOTP
+Keywords=scp;sftp;ssh;ftp;filezilla;totp;2fa;
+Exec={{exec}}
+StartupWMClass={{exec}}
+Icon={{icon}}
+Terminal=false
+Type=Application
