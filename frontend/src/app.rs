@@ -171,12 +171,6 @@ fn main_menu(c: Ctx, which: &str) -> Vec<MenuItem> {
             .checked(c.settings.get_untracked().show_hidden)
             .shortcut("Ctrl+H"),
         ],
-        "edit" => vec![
-            MenuItem::action(tr!("Paramètres", "Settings"), "settings", move || {
-                c.open_dialog(Dialog::Settings);
-            })
-            .shortcut("Ctrl+,"),
-        ],
         _ => vec![MenuItem::action(
             tr!("À propos", "About"),
             "info",
@@ -212,11 +206,15 @@ fn MenuBar() -> impl IntoView {
                 ("server", tr!("Serveur", "Server")),
                 ("transfers", tr!("Transferts", "Transfers")),
                 ("view", tr!("Affichage", "View")),
-                ("edit", tr!("Édition", "Edit")),
-                ("help", tr!("Aide", "Help")),
             ].into_iter().map(|(m, label)| view! {
                 <button class="menubar-item" on:mousedown=move |ev| open_menu_below(c, &ev, main_menu(c, m))>{label}</button>
             }).collect_view()}
+            <button class="menubar-item" title="Ctrl+," on:click=move |_| { c.open_dialog(Dialog::Settings); }>
+                {tr!("Paramètres", "Settings")}
+            </button>
+            <button class="menubar-item" on:mousedown=move |ev| open_menu_below(c, &ev, main_menu(c, "help"))>
+                {tr!("Aide", "Help")}
+            </button>
         </div>
     }
 }
