@@ -701,6 +701,7 @@ pub fn remote_activate(ctx: Ctx, tab: Tab, e: &Entry) {
                 size: e.size,
                 mode: e.mode,
             },
+            false,
         );
     }
 }
@@ -1039,14 +1040,16 @@ fn enqueued(ctx: Ctx, r: &EnqueueResult) {
     }
 }
 
-pub fn edit_remote(ctx: Ctx, tab: Tab, item: RemoteItem) {
+/// Télécharge un fichier distant et l'ouvre, avec l'éditeur de texte par
+/// défaut (`text`) ou l'application associée à son type.
+pub fn edit_remote(ctx: Ctx, tab: Tab, item: RemoteItem, text: bool) {
     let Some(sid) = tab.session.get_untracked() else {
         return;
     };
     let _ = ctx;
     fire(
         "edit_remote",
-        json!({ "id": sid, "path": item.path, "size": item.size }),
+        json!({ "id": sid, "path": item.path, "size": item.size, "text": text }),
     );
 }
 

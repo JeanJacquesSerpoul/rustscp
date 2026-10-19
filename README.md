@@ -111,8 +111,9 @@ parallèles sont des canaux SSH distincts sur **une seule connexion authentifié
   (et depuis le gestionnaire de fichiers du bureau), déplacement distant par
   glisser-déposer.
 - Opérations distantes : créer dossier/fichier, renommer, supprimer (récursif),
-  chmod (récursif), copier le chemin, **afficher/éditer** (téléchargement, ouverture
-  avec l'application par défaut, renvoi proposé à l'enregistrement).
+  chmod (récursif), copier le chemin, **ouvrir** (téléchargement, ouverture avec
+  l'application associée au type) et **afficher/éditer** (même chose avec l'éditeur
+  de texte par défaut, quelle que soit l'extension), renvoi proposé à l'enregistrement.
 - File de transferts : en attente / échecs / réussis, progression, vitesse, temps
   restant, annulation, nouvelle tentative, pause ; politique d'écrasement (demander,
   écraser, si plus récent, si taille différente, renommer, ignorer, « pour toute la file »).

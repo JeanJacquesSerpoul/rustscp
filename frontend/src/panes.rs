@@ -381,10 +381,14 @@ pub fn context_menu(c: Ctx, tab: Tab, side: Side, x: f64, y: f64) {
             ];
             if single_file {
                 let item = first.clone().unwrap();
+                let text_item = item.clone();
+                v.push(MenuItem::action(tr!("Ouvrir", "Open"), "file", move || {
+                    act::edit_remote(c, tab, item.clone(), false)
+                }));
                 v.push(MenuItem::action(
                     tr!("Afficher / Éditer", "View / Edit"),
                     "edit",
-                    move || act::edit_remote(c, tab, item.clone()),
+                    move || act::edit_remote(c, tab, text_item.clone(), true),
                 ));
             }
             v.extend([

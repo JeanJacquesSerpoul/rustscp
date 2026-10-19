@@ -380,13 +380,19 @@ pub async fn queue_download(
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn edit_remote(state: State<'_, AppState>, id: u64, path: String, size: u64) -> CmdResult<()> {
+pub fn edit_remote(
+    state: State<'_, AppState>,
+    id: u64,
+    path: String,
+    size: u64,
+    text: bool,
+) -> CmdResult<()> {
     let s = state.session(id)?;
     let local = Edits::temp_path(id, &path);
     Edits::prepare_dir(&local)?;
     let _ = std::fs::remove_file(&local);
     let mut item = NewItem::new(Direction::Down, local, path, size, s);
-    item.tag = "edit".into();
+    item.tag = if text { "edit" } else { "open" }.into();
     state.transfers.add(vec![item]);
     Ok(())
 }

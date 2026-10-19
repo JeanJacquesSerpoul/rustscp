@@ -205,7 +205,12 @@ async fn dispatch(st: &AppState, cmd: &str, a: Value) -> Result<Value, CmdError>
                 a["size"].as_u64().unwrap_or(0),
                 sess,
             );
-            item.tag = "edit".into();
+            item.tag = if a["text"].as_bool().unwrap_or(false) {
+                "edit"
+            } else {
+                "open"
+            }
+            .into();
             st.transfers.add(vec![item]);
             ok(())
         }

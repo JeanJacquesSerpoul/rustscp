@@ -610,8 +610,10 @@ impl TransferManager {
                             job.protocol.to_uppercase()
                         ),
                     );
-                    if event.tag == "edit" {
-                        self.edits.opened(job.session.id, &job.local, &job.remote);
+                    if event.tag == "edit" || event.tag == "open" {
+                        let text = event.tag == "edit";
+                        self.edits
+                            .opened(job.session.id, &job.local, &job.remote, text);
                     }
                 }
                 TransferStatus::Failed => self.ui.log(
@@ -1153,7 +1155,8 @@ pub async fn expand_download(
 }
 
 // --------------------------------------------------------- édition distante
-/// Fichiers téléchargés pour édition : ouverts avec l'application par défaut,
+/// Fichiers téléchargés pour édition : ouverts avec l'éditeur de texte par
+/// défaut (« edit ») ou l'application associée à leur type (« open ») ;
 /// leurs modifications sont signalées à l'interface (qui propose le renvoi).
 pub struct Edits {
     files: Mutex<HashMap<PathBuf, (u64, String, SystemTime)>>,
@@ -1200,7 +1203,7 @@ impl Edits {
         Ok(())
     }
 
-    fn opened(self: &Arc<Self>, session_id: u64, local: &Path, remote: &str) {
+    fn opened(self: &Arc<Self>, session_id: u64, local: &Path, remote: &str, text: bool) {
         let mtime = fs::metadata(local)
             .and_then(|m| m.modified())
             .unwrap_or(UNIX_EPOCH);
@@ -1208,7 +1211,11 @@ impl Edits {
             .lock()
             .unwrap()
             .insert(local.to_path_buf(), (session_id, remote.to_string(), mtime));
-        crate::local::open_with_default(local);
+        if text {
+            crate::local::open_as_text(local);
+        } else {
+            crate::local::open_with_default(local);
+        }
         self.ui.log(
             "status",
             trf!(

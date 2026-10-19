@@ -111,8 +111,9 @@ separate SSH channels over **a single authenticated connection**.
   sorting, resizable columns, hidden files, drag and drop in both directions
   (including from the desktop file manager), remote moves by drag and drop.
 - Remote operations: create folder/file, rename, delete (recursive), chmod
-  (recursive), copy path, **view/edit** (download, open with the default application,
-  upload offered on save).
+  (recursive), copy path, **open** (download, open with the application associated
+  with the file type) and **view/edit** (same with the default text editor, whatever
+  the extension), upload offered on save.
 - Transfer queue: queued / failed / successful, progress, speed, time remaining,
   cancel, retry, pause; overwrite policy (ask, overwrite, if newer, if size differs,
   rename, skip, "for the whole queue").
