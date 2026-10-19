@@ -26,6 +26,15 @@ use crate::ssh::Session;
 use crate::ui::Ui;
 use rustscp_shared::trf;
 
+/// Lance une tâche asynchrone, y compris depuis une commande Tauri synchrone
+/// (thread principal, sans runtime tokio : `tokio::spawn` y paniquerait).
+fn spawn(fut: impl Future<Output = ()> + Send + 'static) {
+    match tokio::runtime::Handle::try_current() {
+        Ok(h) => drop(h.spawn(fut)),
+        Err(_) => drop(tauri::async_runtime::spawn(fut)),
+    }
+}
+
 /// Compteurs mis à jour sans verrou pendant le transfert.
 struct Progress {
     transferred: AtomicU64,
@@ -304,7 +313,7 @@ impl TransferManager {
         while inner.workers < max {
             inner.workers += 1;
             let me = self.clone();
-            tokio::spawn(async move { me.worker().await });
+            spawn(async move { me.worker().await });
         }
         drop(inner);
         self.notify.notify_waiters();
@@ -1210,7 +1219,7 @@ impl Edits {
         );
         if !self.started.swap(true, Ordering::SeqCst) {
             let me = self.clone();
-            tokio::spawn(async move { me.watch().await });
+            spawn(async move { me.watch().await });
         }
     }
 
