@@ -11,6 +11,7 @@ pub mod scp;
 pub mod sftp;
 pub mod sites;
 pub mod ssh;
+pub mod terminal;
 pub mod totp;
 pub mod transfer;
 pub mod ui;
@@ -25,7 +26,18 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
-        .plugin(tauri_plugin_window_state::Builder::default().build())
+        .plugin(
+            // toutes les fenêtres de terminal partagent une même géométrie mémorisée
+            tauri_plugin_window_state::Builder::default()
+                .map_label(|label| {
+                    if commands::is_term_window(label) {
+                        "terminal"
+                    } else {
+                        label
+                    }
+                })
+                .build(),
+        )
         .setup(|app| {
             let hub = Arc::new(ui::PromptHub::default());
             let ui = Arc::new(ui::TauriUi::new(app.handle().clone(), hub.clone()));
@@ -33,14 +45,32 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            if let WindowEvent::CloseRequested { api, .. } = event {
-                let state = window.state::<AppState>();
-                let stats = state.transfers.stats();
-                if stats.queued + stats.active > 0 {
-                    // l'interface demande confirmation puis appelle « quit »
-                    api.prevent_close();
-                    let _ = window.emit("close-requested", stats.queued + stats.active);
+            let label = window.label();
+            let state = window.state::<AppState>();
+            match event {
+                WindowEvent::CloseRequested { api, .. } if label == "main" => {
+                    let stats = state.transfers.stats();
+                    if stats.queued + stats.active > 0 || state.terminals.count(None, None) > 0 {
+                        // l'interface demande confirmation puis appelle « quit »
+                        api.prevent_close();
+                        let _ = window.emit("close-requested", stats.queued + stats.active);
+                    }
                 }
+                WindowEvent::CloseRequested { api, .. } if commands::is_term_window(label) => {
+                    // plusieurs onglets : la fenêtre demande confirmation
+                    if state.terminals.count(None, Some(label)) > 1 {
+                        api.prevent_close();
+                        let _ = window.emit("term-close-requested", label);
+                    }
+                }
+                WindowEvent::Destroyed if commands::is_term_window(label) => {
+                    state.terminals.close_owner(label);
+                }
+                WindowEvent::Destroyed if label == "main" => {
+                    state.transfers.cancel_all();
+                    window.app_handle().exit(0);
+                }
+                _ => {}
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -89,6 +119,20 @@ pub fn run() {
             commands::local_rename,
             commands::local_trash,
             commands::local_open,
+            commands::term_window,
+            commands::term_open,
+            commands::term_write,
+            commands::term_resize,
+            commands::term_ack,
+            commands::term_close,
+            commands::term_count,
+            commands::term_prefs_get,
+            commands::term_prefs_set,
+            commands::term_set_title,
+            commands::term_window_close,
+            commands::focus_main,
+            commands::paste_text,
+            commands::open_url,
         ])
         .run(tauri::generate_context!())
         .expect("erreur au lancement de RustSCP");

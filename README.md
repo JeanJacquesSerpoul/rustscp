@@ -118,6 +118,7 @@ parallèles sont des canaux SSH distincts sur **une seule connexion authentifié
   restant, annulation, nouvelle tentative, pause ; politique d'écrasement (demander,
   écraser, si plus récent, si taille différente, renommer, ignorer, « pour toute la file »).
 - Reconnexion transparente si la connexion tombe pendant les transferts.
+- **Terminal SSH** intégré (voir ci-dessous), sur la même connexion authentifiée.
 - Thème clair / sombre selon le bureau ; interface en français ou en anglais.
 
 ### Raccourcis
@@ -129,6 +130,7 @@ parallèles sont des canaux SSH distincts sur **une seule connexion authentifié
 | F5 | Actualiser |
 | Ctrl+R | Reconnecter |
 | Ctrl+Maj+D | Déconnecter |
+| Ctrl+Maj+T | Ouvrir un terminal SSH |
 | Retour arrière | Dossier parent |
 | Entrée / double-clic | Ouvrir le dossier / transférer le fichier |
 | Ctrl+U / Ctrl+D | Envoyer / télécharger la sélection |
@@ -136,6 +138,38 @@ parallèles sont des canaux SSH distincts sur **une seule connexion authentifié
 | Ctrl+A, lettres | Tout sélectionner, recherche au clavier |
 | Ctrl+H | Fichiers cachés |
 | Ctrl+Q | Quitter |
+
+## Terminal SSH
+
+Chaque site SSH (SCP / SFTP — pas FTP) peut ouvrir un **terminal** : bouton
+« Terminal » du gestionnaire de sites, bouton de la barre d'outils ou menu
+**Serveur → Ouvrir un terminal SSH** (Ctrl+Maj+T), et **Ouvrir un terminal ici** dans
+le menu du panneau distant (démarre dans le dossier affiché ou sélectionné).
+
+- **Aucun nouveau code TOTP** : le terminal est un canal de plus sur la connexion
+  déjà authentifiée (comme les transferts) ; si elle est tombée, elle est rétablie.
+- Émulation **xterm.js 6** (`xterm-256color`, couleurs 24 bits, Unicode 11 et emoji,
+  souris, écran alternatif, collage encadré, images Sixel / iTerm), rendu
+  **GPU (WebGL)** avec repli automatique, regroupement des sorties et contrôle de
+  flux : un `cat` d'un gros fichier ne fige ni l'affichage ni les transferts.
+- Onglets dans la fenêtre du terminal (nouvel onglet dans le dossier courant si le
+  shell l'annonce par OSC 7), activité et signal sonore signalés sur l'onglet,
+  titre fourni par le shell.
+- Recherche dans l'historique (casse, mot entier, expression régulière, compteur),
+  liens cliquables (Ctrl+clic), copie / collage (sélection copiée automatiquement,
+  clic du milieu, clic droit en option), OSC 52 (copie depuis vim / tmux).
+- Thèmes (automatique clair / sombre, One Dark, Dracula, Nord, Gruvbox, Solarized…),
+  police, taille (Ctrl+molette, Ctrl+= / Ctrl+- / Ctrl+0), interligne, curseur,
+  historique : réglages communs à toutes les fenêtres (`terminal.json`).
+- Fin de session : code de sortie affiché, Entrée relance le shell.
+
+| Touche (terminal) | Action |
+| --- | --- |
+| Ctrl+Maj+C / Ctrl+Maj+V | Copier / coller (aussi Ctrl+Inser / Maj+Inser) |
+| Ctrl+Maj+F, F3 / Maj+F3 | Rechercher, suivant / précédent |
+| Ctrl+Maj+T / Ctrl+Maj+W | Nouvel onglet / fermer l'onglet |
+| Ctrl+Tab, Ctrl+Pg.Suiv / Ctrl+Pg.Préc | Onglet suivant / précédent |
+| Ctrl+Maj+A / Ctrl+Maj+K | Tout sélectionner / effacer l'écran |
 
 ## Performances
 
@@ -201,13 +235,15 @@ src-tauri/   ssh.rs (connexion + auth multi-facteurs), scp.rs (protocole SCP),
              sftp.rs (SFTP en pipeline), remotefs.rs (SFTP / shell / FTP),
              ftp.rs (FTP / FTPS, vérification du certificat TLS),
              transfer.rs (file parallèle, édition distante), sites.rs, config.rs,
-             totp.rs, local.rs, commands.rs (commandes Tauri), ui.rs (événements)
+             totp.rs, local.rs, terminal.rs (shell interactif, PTY),
+             commands.rs (commandes Tauri), ui.rs (événements)
 devbridge/   passerelle HTTP de développement (interface dans un navigateur)
 frontend/    app.rs, panes.rs (listes et arborescences), queue.rs, dialogs.rs,
-             sitemanager.rs, actions.rs, state.rs, layout.rs, icons.rs, styles.css
+             sitemanager.rs, actions.rs, state.rs, layout.rs, icons.rs, styles.css,
+             terminal.rs + terminal.js (fenêtre du terminal), xterm/ (xterm.js)
 ```
 
-Configuration : `~/.config/rustscp/` (`sites.json`, `settings.json`, `known_hosts`,
+Configuration : `~/.config/rustscp/` (`sites.json`, `settings.json`, `terminal.json`, `known_hosts`,
 `known_certs`).
 
 ## Licence

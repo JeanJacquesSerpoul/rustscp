@@ -7,7 +7,7 @@ use std::time::Duration;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use rustscp_shared::util::{rbasename, rjoin, rnormalize, rparent};
-use rustscp_shared::{EnqueueResult, Entry, RemoteItem, SessionInfo, Site};
+use rustscp_shared::{EnqueueResult, Entry, RemoteItem, SessionInfo, Site, proto_is_ftp};
 use serde_json::{Value, json};
 
 use crate::api::{call, fire};
@@ -48,6 +48,9 @@ pub fn close_tab(ctx: Ctx, id: u64) {
                 )
                 .await
             {
+                return;
+            }
+            if !terminals_ok(sid).await {
                 return;
             }
         }
@@ -286,8 +289,9 @@ pub fn local_trash(ctx: Ctx, tab: Tab) {
 }
 
 // ------------------------------------------------------------- connexion
-pub fn connect_site(ctx: Ctx, site: Site) {
-    let tab = match ctx.current() {
+/// Onglet courant s'il est libre, sinon un nouvel onglet.
+fn free_tab(ctx: Ctx) -> Tab {
+    match ctx.current() {
         Some(t)
             if t.session.get_untracked().is_none()
                 && t.conn.get_untracked() != ConnState::Connecting =>
@@ -295,8 +299,11 @@ pub fn connect_site(ctx: Ctx, site: Site) {
             t
         }
         _ => new_tab(ctx),
-    };
-    tab_connect(ctx, tab, site);
+    }
+}
+
+pub fn connect_site(ctx: Ctx, site: Site) {
+    tab_connect(ctx, free_tab(ctx), site);
 }
 
 pub fn tab_connect(ctx: Ctx, tab: Tab, site: Site) {
@@ -354,11 +361,16 @@ pub fn tab_connect(ctx: Ctx, tab: Tab, site: Site) {
                     site.remote_dir.clone()
                 };
                 navigate_remote(ctx, tab, start, false, false);
+                if let Some(cwd) = tab.pending_terminal.get_value() {
+                    tab.pending_terminal.set_value(None);
+                    launch_terminal(ctx, id, &site, cwd);
+                }
             }
             Err(e) => {
                 if tab.session.get_untracked() != Some(id) {
                     return;
                 }
+                tab.pending_terminal.set_value(None);
                 tab.session.set(None);
                 tab.conn.set(ConnState::Lost);
                 tab.remote
@@ -1104,6 +1116,21 @@ pub fn quit(ctx: Ctx) {
         {
             return;
         }
+        let terms = call::<usize>("term_count", json!({ "session_id": null }))
+            .await
+            .unwrap_or(0);
+        if terms > 0
+            && !confirm(
+                tr!("Quitter", "Quit"),
+                &trf!(
+                    "{terms} terminal(aux) SSH ouvert(s). Les fermer et quitter ?",
+                    "{terms} SSH terminal(s) open. Close them and quit?"
+                ),
+            )
+            .await
+        {
+            return;
+        }
         fire("quit", json!({}));
     });
 }
@@ -1123,4 +1150,100 @@ pub fn sites_by_folder(ctx: Ctx) -> Vec<(String, Vec<Site>)> {
             (f, list)
         })
         .collect()
+}
+
+// --------------------------------------------------------------- terminal
+/// Confirme la fermeture des terminaux ouverts sur la session (vrai s'il n'y en a pas).
+pub async fn terminals_ok(session: u64) -> bool {
+    let n = call::<usize>("term_count", json!({ "session_id": session }))
+        .await
+        .unwrap_or(0);
+    n == 0
+        || confirm(
+            tr!("Terminaux ouverts", "Open terminals"),
+            &trf!(
+                "{n} terminal(aux) SSH utilise(nt) cette connexion et sera(ont) fermé(s). Continuer ?",
+                "{n} SSH terminal(s) use this connection and will be closed. Continue?"
+            ),
+        )
+        .await
+}
+
+/// Ouvre la fenêtre du terminal sur une session connectée.
+fn launch_terminal(ctx: Ctx, session: u64, site: &Site, cwd: Option<String>) {
+    let title = site.label();
+    let dev = js_sys::Reflect::get(&crate::fmt::window(), &"__RUSTSCP_DEV__".into())
+        .is_ok_and(|v| v.is_truthy());
+    if dev {
+        // développement (navigateur) : simple onglet du navigateur
+        let enc = |s: &str| String::from(js_sys::encode_uri_component(s));
+        let url = format!(
+            "/?term={session}&title={}&cwd={}",
+            enc(&title),
+            enc(cwd.as_deref().unwrap_or_default())
+        );
+        let _ = crate::fmt::window().open_with_url_and_target(&url, "_blank");
+        return;
+    }
+    spawn_local(async move {
+        let args = json!({ "session_id": session, "title": title, "cwd": cwd });
+        if let Err(e) = call::<()>("term_window", args).await {
+            ctx.log("error", trf!("Terminal SSH : {e}", "SSH terminal: {e}"));
+        }
+    });
+}
+
+/// Terminal SSH sur la session de l'onglet (connexion d'abord si nécessaire) ;
+/// `cwd` : dossier de départ (sinon le dossier personnel).
+pub fn open_terminal(ctx: Ctx, tab: Tab, cwd: Option<String>) {
+    let Some(site) = tab.site.get_untracked() else {
+        return;
+    };
+    if proto_is_ftp(&site.protocol) {
+        spawn_local(async move {
+            alert(
+                tr!("Terminal SSH", "SSH terminal"),
+                tr!(
+                    "Le terminal nécessite une connexion SSH : il n'est pas disponible pour les sites FTP / FTPS.",
+                    "The terminal requires an SSH connection: it is not available for FTP / FTPS sites."
+                ),
+                false,
+            )
+            .await
+        });
+        return;
+    }
+    match (tab.session.get_untracked(), tab.conn.get_untracked()) {
+        (Some(_), ConnState::Connecting) => tab.pending_terminal.set_value(Some(cwd)),
+        // connexion perdue : le cœur se reconnecte à l'ouverture du terminal
+        (Some(id), _) => launch_terminal(ctx, id, &site, cwd),
+        (None, _) => {
+            tab.pending_terminal.set_value(Some(cwd));
+            tab_connect(ctx, tab, site);
+        }
+    }
+}
+
+/// Terminal sur un site enregistré : réutilise un onglet déjà connecté à ce site.
+pub fn site_terminal(ctx: Ctx, site: Site) {
+    let existing = ctx.tabs.with_untracked(|tabs| {
+        tabs.iter()
+            .find(|t| {
+                t.session.get_untracked().is_some()
+                    && t.site
+                        .with_untracked(|s| s.as_ref().is_some_and(|s| s.id == site.id))
+            })
+            .copied()
+    });
+    match existing {
+        Some(tab) => {
+            ctx.active.set(tab.id);
+            open_terminal(ctx, tab, None);
+        }
+        None => {
+            let tab = free_tab(ctx);
+            tab.pending_terminal.set_value(Some(None));
+            tab_connect(ctx, tab, site);
+        }
+    }
 }

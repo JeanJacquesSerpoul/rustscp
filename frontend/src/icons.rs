@@ -78,6 +78,9 @@ fn paths(name: &str) -> &'static str {
             r#"<path d="M10 14a4.5 4.5 0 0 0 6.4 0l3.2-3.2a4.5 4.5 0 0 0-6.4-6.4L11.6 6"/><path d="M14 10a4.5 4.5 0 0 0-6.4 0l-3.2 3.2a4.5 4.5 0 0 0 6.4 6.4l1.6-1.6"/>"#
         }
         "menu" => r#"<path d="M4 7h16M4 12h16M4 17h16"/>"#,
+        "terminal" => {
+            r#"<rect x="2.8" y="4.2" width="18.4" height="15.6" rx="2.4"/><path d="M6.8 9.2l3.2 2.8-3.2 2.8M12.5 15.2h4.8"/>"#
+        }
         "image" => {
             r#"<path class="fill" d="M6 2.8h8.2L19 7.6V21.2H6z"/><path d="M14 3v5h5"/><path d="M8 18l3-3.5 2 2 1.5-1.5L17 18z" class="glyph"/>"#
         }

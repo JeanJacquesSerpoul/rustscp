@@ -4,8 +4,8 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use rustscp_shared::Settings;
 use rustscp_shared::i18n::{Lang, resolve, set_lang};
+use rustscp_shared::{Settings, TermPrefs};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
@@ -52,6 +52,15 @@ pub fn load_settings() -> Settings {
 
 pub fn save_settings(settings: &Settings) -> std::io::Result<()> {
     write_json_atomic(&config_dir().join("settings.json"), settings)
+}
+
+/// Préférences du terminal (fichier séparé : modifiées depuis ses fenêtres).
+pub fn load_term_prefs() -> TermPrefs {
+    read_json(&config_dir().join("terminal.json")).unwrap_or_default()
+}
+
+pub fn save_term_prefs(prefs: &TermPrefs) -> std::io::Result<()> {
+    write_json_atomic(&config_dir().join("terminal.json"), prefs)
 }
 
 /// Locale du système (première variable renseignée parmi LC_ALL, LC_MESSAGES, LANG, LANGUAGE ;

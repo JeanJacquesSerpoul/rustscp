@@ -24,4 +24,5 @@ features = [
   "HtmlSelectElement", "DomRect", "MouseEvent", "KeyboardEvent", "WheelEvent", "FocusEvent",
   "Event", "EventTarget", "Storage", "ResizeObserver", "ResizeObserverEntry", "CssStyleDeclaration",
   "ScrollIntoViewOptions", "ScrollLogicalPosition", "Node", "DomTokenList", "Location",
+  "HtmlHeadElement", "UrlSearchParams",
 ]

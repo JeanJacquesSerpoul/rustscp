@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex};
 use rustscp_shared::{
     EditChanged, LogLine, PromptEvent, PromptReply, PromptRequest, TransferFinished,
 };
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::oneshot;
 
 pub type BoxFut<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
@@ -97,6 +97,15 @@ impl Ui for TauriUi {
     }
 
     fn ask(&self, request: PromptRequest) -> BoxFut<'_, PromptReply> {
+        // les questions s'affichent dans la fenêtre principale : la ramener
+        // devant si l'utilisateur est dans un terminal (reconnexion, code TOTP)
+        let in_terminal = self.app.webview_windows().iter().any(|(label, w)| {
+            crate::commands::is_term_window(label) && w.is_focused().unwrap_or(false)
+        });
+        if in_terminal && let Some(main) = self.app.get_webview_window("main") {
+            let _ = main.unminimize();
+            let _ = main.set_focus();
+        }
         Box::pin(
             self.hub
                 .ask(request, |ev| self.app.emit("prompt", ev).is_ok()),

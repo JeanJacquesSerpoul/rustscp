@@ -11,6 +11,7 @@ use std::time::{Duration, Instant};
 use rand::RngCore;
 use rustscp_lib::sites::SecretStore;
 use rustscp_lib::ssh::Session;
+use rustscp_lib::terminal::{FRAME_DATA, TermSink, Terminals};
 use rustscp_lib::totp;
 use rustscp_lib::transfer::{TransferManager, expand_download, expand_upload};
 use rustscp_lib::ui::{BoxFut, Ui};
@@ -434,6 +435,138 @@ async fn integration() {
     let (session, ui) = make_session_with(PROTO_SFTP, OTP_SECRET, &ppk, Some(PPK_PASSPHRASE)).await;
     assert!(session.is_connected());
     assert!(ui.joined().contains("authentification partielle"));
+    session.close().await;
+
+    // 7. terminal SSH
+    terminal_roundtrip().await;
+}
+
+/// Trames reçues d'un terminal.
+#[derive(Default)]
+struct TermCapture {
+    data: Mutex<Vec<u8>>,
+    exit: Mutex<Option<String>>,
+}
+
+impl TermSink for TermCapture {
+    fn send(&self, frame: Vec<u8>) -> bool {
+        if frame[0] == FRAME_DATA {
+            self.data.lock().unwrap().extend_from_slice(&frame[1..]);
+        } else {
+            *self.exit.lock().unwrap() = Some(String::from_utf8_lossy(&frame[1..]).into());
+        }
+        true
+    }
+}
+
+impl TermCapture {
+    fn text(&self) -> String {
+        String::from_utf8_lossy(&self.data.lock().unwrap()).into_owned()
+    }
+
+    /// Attend que la sortie vérifie `ok`, en acquittant au fil de l'eau comme l'interface.
+    async fn wait_for(
+        &self,
+        terms: &Terminals,
+        id: u64,
+        acked: &mut usize,
+        ok: impl Fn(&str) -> bool,
+    ) {
+        let deadline = Instant::now() + Duration::from_secs(30);
+        loop {
+            let len = self.data.lock().unwrap().len();
+            if len > *acked {
+                terms.ack(id, len - *acked);
+                *acked = len;
+            }
+            if ok(&self.text()) {
+                return;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "terminal : délai dépassé\n{}",
+                self.text()
+            );
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    }
+}
+
+/// Shell interactif (PTY) multiplexé sur la session, en parallèle de la navigation.
+async fn terminal_roundtrip() {
+    let (session, ui) = make_session(PROTO_SFTP, OTP_SECRET).await;
+    let prompts = ui.asked.lock().unwrap().len();
+    let terms = Terminals::new();
+    let cap = Arc::new(TermCapture::default());
+    let id = terms
+        .open(
+            session.clone(),
+            "test".into(),
+            (80, 24),
+            Some("/etc".into()),
+            cap.clone(),
+        )
+        .await
+        .expect("ouverture du terminal");
+    assert_eq!(terms.count(Some(session.id), None), 1);
+    let mut acked = 0;
+    terms.write(
+        id,
+        b"echo RUSTSCP_$((6*7)) $TERM $COLORTERM; echo L=$LANG; pwd; stty size\r".to_vec(),
+    );
+    cap.wait_for(&terms, id, &mut acked, |t| {
+        t.contains("RUSTSCP_42 xterm-256color")
+            && t.contains("\n/etc")
+            && t.contains("24 80")
+            && t.contains("UTF-8\r\n")
+    })
+    .await;
+
+    // redimensionnement
+    terms.resize(id, 132, 40);
+    terms.write(id, b"stty size\r".to_vec());
+    cap.wait_for(&terms, id, &mut acked, |t| t.contains("40 132"))
+        .await;
+
+    // sortie volumineuse (contrôle de flux) pendant une navigation sur la même connexion
+    terms.write(id, b"seq 1 600000; echo FIN_$((1+1))\r".to_vec());
+    assert!(!session.listdir("/etc").await.unwrap().is_empty());
+    cap.wait_for(&terms, id, &mut acked, |t| {
+        t.contains("600000") && t.contains("FIN_2")
+    })
+    .await;
+    assert!(cap.text().contains("\n599999\r\n600000\r\n"));
+
+    // UTF-8 et fin du shell avec son code de sortie
+    terms.write(id, "echo héhé✓\r".as_bytes().to_vec());
+    cap.wait_for(&terms, id, &mut acked, |t| t.contains("héhé✓\r\n"))
+        .await;
+    terms.write(id, b"exit 3\r".to_vec());
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while cap.exit.lock().unwrap().is_none() {
+        assert!(Instant::now() < deadline, "fin du terminal non signalée");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let exit = cap.exit.lock().unwrap().clone().unwrap();
+    assert!(exit.contains("\"code\":3"), "{exit}");
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert_eq!(terms.count(None, None), 0);
+
+    // fermeture par l'interface
+    let cap2 = Arc::new(TermCapture::default());
+    let id2 = terms
+        .open(session.clone(), "test".into(), (80, 24), None, cap2.clone())
+        .await
+        .unwrap();
+    terms.close_owner("test");
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while terms.count(None, None) > 0 {
+        assert!(Instant::now() < deadline, "terminal {id2} non fermé");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    // aucun nouveau code demandé : même connexion authentifiée
+    assert_eq!(ui.asked.lock().unwrap().len(), prompts);
+    assert!(session.is_connected());
     session.close().await;
 }
 

@@ -254,6 +254,8 @@ pub struct Tab {
     pub nav_token: StoredValue<u64>,
     pub refresh_timer: StoredValue<Option<TimeoutHandle>>,
     pub local_timer: StoredValue<Option<TimeoutHandle>>,
+    /// Terminal à ouvrir dès la connexion établie (dossier de départ éventuel).
+    pub pending_terminal: StoredValue<Option<Option<String>>>,
 }
 
 impl Tab {
@@ -273,6 +275,7 @@ impl Tab {
             nav_token: StoredValue::new(0),
             refresh_timer: StoredValue::new(None),
             local_timer: StoredValue::new(None),
+            pending_terminal: StoredValue::new(None),
         }
     }
 
@@ -292,6 +295,14 @@ impl Tab {
 
     pub fn connected(&self) -> bool {
         self.conn.get() == ConnState::Connected
+    }
+
+    /// Terminal SSH possible : site SSH (pas FTP) acceptant les commandes.
+    pub fn terminal_ok(&self) -> bool {
+        self.site
+            .get()
+            .is_some_and(|s| !rustscp_shared::proto_is_ftp(&s.protocol))
+            && self.shell_ok.get() != Some(false)
     }
 
     pub fn title(&self) -> String {

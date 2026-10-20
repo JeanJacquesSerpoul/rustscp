@@ -12,6 +12,7 @@ use std::sync::{Arc, Mutex};
 use rustscp_lib::commands::AppState;
 use rustscp_lib::error::CmdError;
 use rustscp_lib::platform::{is_virtual_root, native_path, ui_path};
+use rustscp_lib::terminal::TermSink;
 use rustscp_lib::transfer::{Edits, NewItem, expand_download, expand_upload};
 use rustscp_lib::ui::{BoxFut, PromptHub, Ui, now_hms};
 use rustscp_lib::{config, local, sites, ssh, totp};
@@ -68,12 +69,32 @@ impl Ui for BridgeUi {
     }
 }
 
+/// Trames d'un terminal : événements « __channel__ » (base64) relayés par devshim.js.
+struct BridgeSink {
+    ui: Arc<BridgeUi>,
+    channel: u64,
+}
+
+impl TermSink for BridgeSink {
+    fn send(&self, frame: Vec<u8>) -> bool {
+        let data = data_encoding::BASE64.encode(&frame);
+        self.ui
+            .push("__channel__", json!({ "id": self.channel, "data": data }));
+        true
+    }
+}
+
 fn de<T: DeserializeOwned>(v: &Value, key: &str) -> Result<T, CmdError> {
     serde_json::from_value(v.get(key).cloned().unwrap_or(Value::Null))
         .map_err(|e| CmdError::from(format!("argument « {key} » : {e}")))
 }
 
-async fn dispatch(st: &AppState, cmd: &str, a: Value) -> Result<Value, CmdError> {
+async fn dispatch(
+    st: &AppState,
+    ui: &Arc<BridgeUi>,
+    cmd: &str,
+    a: Value,
+) -> Result<Value, CmdError> {
     let id = || a["id"].as_u64().unwrap_or(0);
     let s = |k: &str| a[k].as_str().unwrap_or_default().to_string();
     let ok = |v: ()| Ok::<Value, CmdError>(json!(v));
@@ -284,6 +305,59 @@ async fn dispatch(st: &AppState, cmd: &str, a: Value) -> Result<Value, CmdError>
             local::open_with_default(&native_path(&s("path")));
             ok(())
         }
+        // terminal (la fenêtre est un onglet du navigateur, ouvert par l'interface)
+        "term_open" => {
+            let sess = st.session(a["session_id"].as_u64().unwrap_or(0))?;
+            let channel = s("on_data")
+                .strip_prefix("__CHANNEL__:")
+                .and_then(|v| v.parse().ok())
+                .ok_or_else(|| CmdError::from("canal « on_data » invalide".to_string()))?;
+            let sink = Arc::new(BridgeSink {
+                ui: ui.clone(),
+                channel,
+            });
+            let size = (de(&a, "cols")?, de(&a, "rows")?);
+            let cwd: Option<String> = de(&a, "cwd")?;
+            let tid = st
+                .terminals
+                .open(sess, format!("dev-{channel}"), size, cwd, sink)
+                .await?;
+            Ok(json!(tid))
+        }
+        "term_write" => {
+            let data = s("data");
+            let bytes = if a["binary"].as_bool().unwrap_or(false) {
+                data.chars().map(|c| c as u32 as u8).collect()
+            } else {
+                data.into_bytes()
+            };
+            st.terminals.write(id(), bytes);
+            ok(())
+        }
+        "term_resize" => {
+            st.terminals.resize(id(), de(&a, "cols")?, de(&a, "rows")?);
+            ok(())
+        }
+        "term_ack" => {
+            st.terminals.ack(id(), de(&a, "bytes")?);
+            ok(())
+        }
+        "term_close" => {
+            st.terminals.close(id());
+            ok(())
+        }
+        "term_count" => Ok(json!(st.terminals.count(a["session_id"].as_u64(), None))),
+        "term_prefs_get" => Ok(json!(config::load_term_prefs())),
+        "term_prefs_set" => {
+            let prefs: TermPrefs = de(&a, "prefs")?;
+            config::save_term_prefs(&prefs)?;
+            ui.push("term-prefs", &prefs);
+            ok(())
+        }
+        "term_window" | "term_set_title" | "term_window_close" | "focus_main" | "open_url" => {
+            ok(())
+        }
+        "paste_text" => Ok(json!("")),
         other => Err(CmdError::from(format!("commande inconnue : {other}"))),
     }
 }
@@ -328,15 +402,27 @@ fn main() {
                 .nth(1)
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(0);
-            let list: Vec<Value> = ui
-                .events
-                .lock()
-                .unwrap()
-                .iter()
-                .filter(|(s, _, _)| *s > since)
-                .map(|(s, n, p)| json!({ "seq": s, "event": n, "payload": p }))
-                .collect();
-            respond(req, 200, Value::Array(list).to_string());
+            // longue attente : réponse dès qu'un événement arrive (au plus 10 s)
+            let ui = ui.clone();
+            rt.spawn(async move {
+                let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
+                loop {
+                    let list: Vec<Value> = ui
+                        .events
+                        .lock()
+                        .unwrap()
+                        .iter()
+                        .filter(|(s, _, _)| *s > since)
+                        .take(200)
+                        .map(|(s, n, p)| json!({ "seq": s, "event": n, "payload": p }))
+                        .collect();
+                    if !list.is_empty() || tokio::time::Instant::now() >= deadline {
+                        respond(req, 200, Value::Array(list).to_string());
+                        return;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                }
+            });
             continue;
         }
         let Some(cmd) = url.strip_prefix("/invoke/").map(str::to_string) else {
@@ -346,9 +432,9 @@ fn main() {
         let mut body = String::new();
         let _ = req.as_reader().read_to_string(&mut body);
         let args: Value = serde_json::from_str(&body).unwrap_or(json!({}));
-        let state = state.clone();
+        let (state, ui) = (state.clone(), ui.clone());
         rt.spawn(async move {
-            match dispatch(&state, &cmd, args).await {
+            match dispatch(&state, &ui, &cmd, args).await {
                 Ok(v) => respond(req, 200, v.to_string()),
                 Err(e) => respond(req, 400, serde_json::to_string(&e).unwrap()),
             }

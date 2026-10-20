@@ -118,6 +118,7 @@ separate SSH channels over **a single authenticated connection**.
   cancel, retry, pause; overwrite policy (ask, overwrite, if newer, if size differs,
   rename, skip, "for the whole queue").
 - Transparent reconnection if the connection drops during transfers.
+- Built-in **SSH terminal** (see below), on the same authenticated connection.
 - Light / dark theme following the desktop; French or English interface.
 
 ### Keyboard shortcuts
@@ -129,6 +130,7 @@ separate SSH channels over **a single authenticated connection**.
 | F5 | Refresh |
 | Ctrl+R | Reconnect |
 | Ctrl+Shift+D | Disconnect |
+| Ctrl+Shift+T | Open SSH terminal |
 | Backspace | Parent folder |
 | Enter / double-click | Open folder / transfer file |
 | Ctrl+U / Ctrl+D | Upload / download the selection |
@@ -136,6 +138,37 @@ separate SSH channels over **a single authenticated connection**.
 | Ctrl+A, letters | Select all, type-ahead search |
 | Ctrl+H | Hidden files |
 | Ctrl+Q | Quit |
+
+## SSH terminal
+
+Every SSH site (SCP / SFTP — not FTP) can open a **terminal**: "Terminal" button in
+the Site Manager, toolbar button or **Server → Open SSH terminal** menu
+(Ctrl+Shift+T), and **Open terminal here** in the remote pane menu (starts in the
+displayed or selected folder).
+
+- **No new TOTP code**: the terminal is one more channel on the already
+  authenticated connection (like transfers); if it dropped, it is re-established.
+- **xterm.js 6** emulation (`xterm-256color`, 24-bit colour, Unicode 11 and emoji,
+  mouse, alternate screen, bracketed paste, Sixel / iTerm images), **GPU (WebGL)**
+  rendering with automatic fallback, output batching and flow control: `cat`-ing a
+  huge file freezes neither the display nor the transfers.
+- Tabs in the terminal window (new tab in the current folder when the shell reports
+  it through OSC 7), activity and bell shown on the tab, title set by the shell.
+- Scrollback search (case, whole word, regular expression, counter), clickable
+  links (Ctrl+click), copy / paste (copy on select, middle click, optional right
+  click), OSC 52 (copy from vim / tmux).
+- Themes (automatic light / dark, One Dark, Dracula, Nord, Gruvbox, Solarized…),
+  font, size (Ctrl+wheel, Ctrl+= / Ctrl+- / Ctrl+0), line height, cursor,
+  scrollback: settings shared by all windows (`terminal.json`).
+- End of session: exit code shown, Enter restarts the shell.
+
+| Key (terminal) | Action |
+| --- | --- |
+| Ctrl+Shift+C / Ctrl+Shift+V | Copy / paste (also Ctrl+Insert / Shift+Insert) |
+| Ctrl+Shift+F, F3 / Shift+F3 | Find, next / previous |
+| Ctrl+Shift+T / Ctrl+Shift+W | New tab / close tab |
+| Ctrl+Tab, Ctrl+PgDn / Ctrl+PgUp | Next / previous tab |
+| Ctrl+Shift+A / Ctrl+Shift+K | Select all / clear screen |
 
 ## Performance
 
@@ -201,13 +234,15 @@ src-tauri/   ssh.rs (connection + multi-factor auth), scp.rs (SCP protocol),
              sftp.rs (pipelined SFTP), remotefs.rs (SFTP / shell / FTP),
              ftp.rs (FTP / FTPS, TLS certificate checking),
              transfer.rs (parallel queue, remote editing), sites.rs, config.rs,
-             totp.rs, local.rs, commands.rs (Tauri commands), ui.rs (events)
+             totp.rs, local.rs, terminal.rs (interactive shell, PTY),
+             commands.rs (Tauri commands), ui.rs (events)
 devbridge/   development HTTP bridge (interface in a browser)
 frontend/    app.rs, panes.rs (lists and trees), queue.rs, dialogs.rs,
-             sitemanager.rs, actions.rs, state.rs, layout.rs, icons.rs, styles.css
+             sitemanager.rs, actions.rs, state.rs, layout.rs, icons.rs, styles.css,
+             terminal.rs + terminal.js (terminal window), xterm/ (xterm.js)
 ```
 
-Configuration: `~/.config/rustscp/` (`sites.json`, `settings.json`, `known_hosts`,
+Configuration: `~/.config/rustscp/` (`sites.json`, `settings.json`, `terminal.json`, `known_hosts`,
 `known_certs`).
 
 ## License

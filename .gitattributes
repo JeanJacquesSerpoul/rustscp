@@ -2,3 +2,6 @@
 *.sh text eol=lf
 tests/ftp/vsftpd.conf text eol=lf
 tests/**/Dockerfile text eol=lf
+
+# Bibliothèque tierce (xterm.js) copiée telle quelle
+frontend/xterm/** linguist-vendored -diff

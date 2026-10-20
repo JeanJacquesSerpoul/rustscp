@@ -372,6 +372,11 @@ pub fn context_menu(c: Ctx, tab: Tab, side: Side, x: f64, y: f64) {
                     .join("\n")
             };
             let first = items.first().cloned();
+            // dossier sélectionné, sinon dossier affiché
+            let here = match items.as_slice() {
+                [one] if one.is_dir => one.path.clone(),
+                _ => base.clone(),
+            };
             let mut v = vec![
                 MenuItem::action(tr!("Télécharger", "Download"), "download", move || {
                     act::download_selected(c, tab)
@@ -428,6 +433,13 @@ pub fn context_menu(c: Ctx, tab: Tab, side: Side, x: f64, y: f64) {
                     act::refresh_remote(c, tab)
                 })
                 .shortcut("F5"),
+                MenuItem::Separator,
+                MenuItem::action(
+                    tr!("Ouvrir un terminal ici", "Open terminal here"),
+                    "terminal",
+                    move || act::open_terminal(c, tab, Some(here.clone())),
+                )
+                .enabled(tab.terminal_ok()),
             ]);
             v
         }

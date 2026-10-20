@@ -48,15 +48,33 @@ fn refresh_all(c: Ctx) {
     }
 }
 
+/// `run` après confirmation si des terminaux utilisent la session de l'onglet.
+fn after_terminals(t: crate::state::Tab, run: impl FnOnce() + 'static) {
+    match t.session.get_untracked() {
+        None => run(),
+        Some(sid) => spawn_local(async move {
+            if act::terminals_ok(sid).await {
+                run();
+            }
+        }),
+    }
+}
+
 fn reconnect(c: Ctx) {
     if let Some(t) = c.current() {
-        act::reconnect(c, t);
+        after_terminals(t, move || act::reconnect(c, t));
     }
 }
 
 fn disconnect(c: Ctx) {
     if let Some(t) = c.current() {
-        act::disconnect(c, t);
+        after_terminals(t, move || act::disconnect(c, t));
+    }
+}
+
+fn open_terminal(c: Ctx) {
+    if let Some(t) = c.current() {
+        act::open_terminal(c, t, None);
     }
 }
 
@@ -112,6 +130,7 @@ fn main_menu(c: Ctx, which: &str) -> Vec<MenuItem> {
     let has_site = c
         .current()
         .is_some_and(|t| t.site.get_untracked().is_some());
+    let terminal_ok = c.current().is_some_and(|t| t.terminal_ok());
     match which {
         "file" => vec![
             MenuItem::action(
@@ -152,6 +171,14 @@ fn main_menu(c: Ctx, which: &str) -> Vec<MenuItem> {
                 refresh_all(c)
             })
             .shortcut("F5"),
+            MenuItem::Separator,
+            MenuItem::action(
+                tr!("Ouvrir un terminal SSH", "Open SSH terminal"),
+                "terminal",
+                move || open_terminal(c),
+            )
+            .enabled(terminal_ok)
+            .shortcut(tr!("Ctrl+Maj+T", "Ctrl+Shift+T")),
         ],
         "transfers" => vec![
             MenuItem::action(tr!("Traiter la file", "Process queue"), "play", move || {
@@ -238,6 +265,8 @@ fn Toolbar() -> impl IntoView {
             <button class="tool" title=tr!("Actualiser les listes de fichiers (F5)", "Refresh file lists (F5)") on:click=move |_| refresh_all(c)>{icon("refresh")}</button>
             <button class="tool" title=tr!("Reconnecter (Ctrl+R)", "Reconnect (Ctrl+R)") disabled=move || !has_site() on:click=move |_| reconnect(c)>{icon("connect")}</button>
             <button class="tool" title=tr!("Déconnecter (Ctrl+Maj+D)", "Disconnect (Ctrl+Shift+D)") disabled=move || !has_session() on:click=move |_| disconnect(c)>{icon("disconnect")}</button>
+            <button class="tool" title=tr!("Ouvrir un terminal SSH (Ctrl+Maj+T)", "Open SSH terminal (Ctrl+Shift+T)")
+                disabled=move || !c.current_tracked().is_some_and(|t| t.terminal_ok()) on:click=move |_| open_terminal(c)>{icon("terminal")}</button>
             <span class="sep"></span>
             <button class="tool" class:toggled=move || !c.queue.running.get()
                 title=move || if c.queue.running.get() { tr!("Mettre en pause la file de transferts", "Pause the transfer queue") } else { tr!("Reprendre la file de transferts", "Resume the transfer queue") }
@@ -842,6 +871,10 @@ fn global_keydown(c: Ctx, ev: web_sys::KeyboardEvent) {
         }
         (true, false, "t" | "T") => {
             act::new_tab(c);
+            true
+        }
+        (true, true, "t" | "T") => {
+            open_terminal(c);
             true
         }
         (true, false, "w" | "W") => {

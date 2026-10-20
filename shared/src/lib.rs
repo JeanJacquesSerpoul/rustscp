@@ -279,6 +279,69 @@ pub fn overwrite_choices() -> [(&'static str, &'static str); 6] {
     ]
 }
 
+// ---------------------------------------------------------------- terminal
+/// Préférences du terminal SSH (terminal.json), partagées par toutes ses fenêtres.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(default)]
+pub struct TermPrefs {
+    pub font_family: String,
+    pub font_size: f64,
+    pub line_height: f64,
+    /// auto (suit le thème du système) ou nom d'un thème (voir `term_themes`).
+    pub theme: String,
+    /// block | bar | underline
+    pub cursor_style: String,
+    pub cursor_blink: bool,
+    pub scrollback: u32,
+    /// Copie automatique de la sélection (comme les terminaux Linux).
+    pub copy_on_select: bool,
+    /// Clic droit : coller au lieu d'ouvrir le menu.
+    pub right_click_paste: bool,
+    /// Rendu accéléré par la carte graphique (WebGL).
+    pub gpu: bool,
+    /// Signal sonore : clignotement de l'onglet.
+    pub visual_bell: bool,
+}
+
+impl Default for TermPrefs {
+    fn default() -> Self {
+        TermPrefs {
+            font_family: String::new(),
+            font_size: 14.0,
+            line_height: 1.15,
+            theme: "auto".into(),
+            cursor_style: "block".into(),
+            cursor_blink: true,
+            scrollback: 10_000,
+            copy_on_select: false,
+            right_click_paste: false,
+            gpu: true,
+            visual_bell: true,
+        }
+    }
+}
+
+/// Polices proposées par défaut (première installée utilisée).
+pub const TERM_FONTS: &str = "\"JetBrains Mono\", \"Cascadia Mono\", \"Fira Code\", \"Source Code Pro\", \"Ubuntu Mono\", \"DejaVu Sans Mono\", \"Liberation Mono\", Consolas, Menlo, monospace";
+
+/// Thèmes du terminal (clé, libellé) ; couleurs définies dans terminal.js.
+pub fn term_themes() -> Vec<(&'static str, &'static str)> {
+    vec![
+        (
+            "auto",
+            tr!("Automatique (clair / sombre)", "Automatic (light / dark)"),
+        ),
+        ("dark", tr!("RustSCP sombre", "RustSCP dark")),
+        ("light", tr!("RustSCP clair", "RustSCP light")),
+        ("one-dark", "One Dark"),
+        ("dracula", "Dracula"),
+        ("nord", "Nord"),
+        ("gruvbox", "Gruvbox"),
+        ("solarized-dark", "Solarized Dark"),
+        ("solarized-light", "Solarized Light"),
+    ]
+}
+
 // -------------------------------------------------------------- transferts
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[serde(rename_all = "lowercase")]

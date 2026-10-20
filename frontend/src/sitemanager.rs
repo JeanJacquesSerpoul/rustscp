@@ -380,7 +380,8 @@ pub fn SiteManager(dialog_id: u64, select: Option<String>) -> impl IntoView {
         save();
         close();
     };
-    let connect = move || {
+    // connexion (navigation des fichiers) ou terminal SSH
+    let launch = move |terminal: bool| {
         save();
         if current_id().is_none() {
             return;
@@ -401,8 +402,13 @@ pub fn SiteManager(dialog_id: u64, select: Option<String>) -> impl IntoView {
             return;
         }
         close();
-        crate::actions::connect_site(c, site);
+        if terminal {
+            crate::actions::site_terminal(c, site);
+        } else {
+            crate::actions::connect_site(c, site);
+        }
     };
+    let connect = move || launch(false);
     let browse_key = move |_| {
         let cur = form.with_untracked(|f| f.key_file.clone());
         let start = cur
@@ -685,6 +691,9 @@ pub fn SiteManager(dialog_id: u64, select: Option<String>) -> impl IntoView {
             <div class="modal-buttons">
                 <button type="button" on:click=move |_| close()>{tr!("Annuler", "Cancel")}</button>
                 <button type="button" on:click=ok>"OK"</button>
+                <button type="button" disabled=move || !is_site.get() || ftp.get()
+                    title=move || if ftp.get() { tr!("Terminal indisponible en FTP (SSH requis)", "Terminal not available over FTP (SSH required)") } else { tr!("Ouvrir un terminal SSH sur ce site", "Open an SSH terminal on this site") }
+                    on:click=move |_| launch(true)>{icon("terminal")}{tr!("Terminal", "Terminal")}</button>
                 <button type="button" class="primary" disabled=move || !is_site.get() on:click=move |_| connect()>{icon("connect")}{tr!("Connexion", "Connect")}</button>
             </div>
         </Modal>

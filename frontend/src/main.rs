@@ -11,6 +11,7 @@ mod panes;
 mod queue;
 mod sitemanager;
 mod state;
+mod terminal;
 
 fn main() {
     console_error_panic_hook::set_once();
@@ -26,6 +27,15 @@ fn main() {
         if let Some(root) = fmt::window().document().and_then(|d| d.document_element()) {
             let _ = root.set_attribute("lang", lang.code());
         }
-        leptos::mount::mount_to_body(app::App);
+        match terminal::launch_params() {
+            // fenêtre de terminal SSH
+            Some(launch) => {
+                terminal::load_assets().await;
+                leptos::mount::mount_to_body(move || {
+                    leptos::view! { <terminal::TerminalApp launch=launch.clone()/> }
+                });
+            }
+            None => leptos::mount::mount_to_body(app::App),
+        }
     });
 }

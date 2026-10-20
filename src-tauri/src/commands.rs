@@ -1,20 +1,23 @@
 //! Commandes appelées par l'interface (invoke).
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
 use rustscp_shared::util::{rbasename, rjoin};
 use rustscp_shared::{
     Direction, EnqueueResult, Entry, PromptReply, RemoteItem, SecretBackend, SessionInfo, Settings,
-    Site, SitesFile, TotpPreview, TransferPoll,
+    Site, SitesFile, TermPrefs, TotpPreview, TransferPoll,
 };
 use serde::Serialize;
-use tauri::{AppHandle, State};
+use tauri::ipc::InvokeResponseBody;
+use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::error::CmdError;
 use crate::platform::{native_path, ui_path};
 use crate::sites::SecretStore;
 use crate::ssh::Session;
+use crate::terminal::{TermSink, Terminals};
 use crate::transfer::{Edits, NewItem, TransferManager, expand_download, expand_upload};
 use crate::ui::{PromptHub, Ui};
 use crate::{config, local, sites, totp};
@@ -29,6 +32,7 @@ pub struct AppState {
     pub secrets: Arc<SecretStore>,
     pub sessions: Mutex<HashMap<u64, Arc<Session>>>,
     pub transfers: Arc<TransferManager>,
+    pub terminals: Arc<Terminals>,
 }
 
 impl AppState {
@@ -44,6 +48,7 @@ impl AppState {
             secrets,
             sessions: Mutex::new(HashMap::new()),
             transfers,
+            terminals: Terminals::new(),
         }
     }
 
@@ -256,6 +261,7 @@ pub fn session_info(state: State<'_, AppState>, id: u64) -> CmdResult<SessionInf
 pub fn session_close(state: State<'_, AppState>, id: u64) {
     state.transfers.cancel_session(id);
     state.transfers.edits.forget_session(id);
+    state.terminals.close_session(id);
     if let Some(s) = state.sessions.lock().unwrap().remove(&id) {
         tauri::async_runtime::spawn(async move { s.close().await });
     }
@@ -524,4 +530,179 @@ pub async fn local_trash(paths: Vec<String>) -> CmdResult<()> {
 #[tauri::command(rename_all = "snake_case")]
 pub fn local_open(path: String) {
     local::open_with_default(&native_path(&path));
+}
+
+// ----------------------------------------------------------------- terminal
+/// Trames du terminal vers sa fenêtre (canal IPC binaire, ordonné).
+struct ChannelSink(tauri::ipc::Channel<InvokeResponseBody>);
+
+impl TermSink for ChannelSink {
+    fn send(&self, frame: Vec<u8>) -> bool {
+        self.0.send(InvokeResponseBody::Raw(frame)).is_ok()
+    }
+}
+
+static NEXT_TERM_WINDOW: AtomicU64 = AtomicU64::new(1);
+
+/// Paramètres de lancement injectés dans la fenêtre du terminal.
+#[derive(Serialize)]
+struct TermLaunch {
+    label: String,
+    session: u64,
+    title: String,
+    cwd: Option<String>,
+}
+
+pub fn is_term_window(label: &str) -> bool {
+    label.starts_with("term-")
+}
+
+/// Ouvre une fenêtre de terminal sur la session (connexion déjà authentifiée).
+#[tauri::command(rename_all = "snake_case")]
+pub async fn term_window(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    session_id: u64,
+    title: String,
+    cwd: Option<String>,
+) -> CmdResult<()> {
+    if state.session(session_id)?.ftp().is_some() {
+        return Err(CmdError::from(
+            tr!(
+                "Le terminal nécessite une connexion SSH",
+                "The terminal requires an SSH connection"
+            )
+            .to_string(),
+        ));
+    }
+    let label = format!("term-{}", NEXT_TERM_WINDOW.fetch_add(1, Ordering::Relaxed));
+    let launch = TermLaunch {
+        label: label.clone(),
+        session: session_id,
+        title: title.clone(),
+        cwd,
+    };
+    let script = format!(
+        "window.__RUSTSCP_TERM__ = {};",
+        serde_json::to_string(&launch).map_err(|e| CmdError::from(e.to_string()))?
+    );
+    let window = tauri::WebviewWindowBuilder::new(&app, &label, tauri::WebviewUrl::default())
+        .title(format!("{title} — {}", tr!("Terminal SSH", "SSH terminal")))
+        .inner_size(1000.0, 640.0)
+        .min_inner_size(420.0, 240.0)
+        .initialization_script(&script)
+        .disable_drag_drop_handler()
+        .build()
+        .map_err(|e| CmdError::from(e.to_string()))?;
+    let _ = window.set_focus();
+    Ok(())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+#[allow(clippy::too_many_arguments)]
+pub async fn term_open(
+    window: tauri::WebviewWindow,
+    state: State<'_, AppState>,
+    session_id: u64,
+    cols: u32,
+    rows: u32,
+    cwd: Option<String>,
+    on_data: tauri::ipc::Channel<InvokeResponseBody>,
+) -> CmdResult<u64> {
+    let s = state.session(session_id)?;
+    let sink = Arc::new(ChannelSink(on_data));
+    let owner = window.label().to_string();
+    Ok(state
+        .terminals
+        .open(s, owner, (cols, rows), cwd, sink)
+        .await?)
+}
+
+/// Saisie : texte (UTF-8) ou, si `binary`, octets 0-255 (rapports souris).
+#[tauri::command(rename_all = "snake_case")]
+pub fn term_write(state: State<'_, AppState>, id: u64, data: String, binary: bool) {
+    let bytes = if binary {
+        data.chars().map(|c| c as u32 as u8).collect()
+    } else {
+        data.into_bytes()
+    };
+    state.terminals.write(id, bytes);
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn term_resize(state: State<'_, AppState>, id: u64, cols: u32, rows: u32) {
+    state.terminals.resize(id, cols, rows);
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn term_ack(state: State<'_, AppState>, id: u64, bytes: usize) {
+    state.terminals.ack(id, bytes);
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn term_close(state: State<'_, AppState>, id: u64) {
+    state.terminals.close(id);
+}
+
+/// Terminaux ouverts (sur une session, ou en tout).
+#[tauri::command(rename_all = "snake_case")]
+pub fn term_count(state: State<'_, AppState>, session_id: Option<u64>) -> usize {
+    state.terminals.count(session_id, None)
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn term_prefs_get() -> TermPrefs {
+    config::load_term_prefs()
+}
+
+/// Enregistre les préférences et les applique à toutes les fenêtres de terminal.
+#[tauri::command(rename_all = "snake_case")]
+pub fn term_prefs_set(app: AppHandle, prefs: TermPrefs) -> CmdResult<()> {
+    config::save_term_prefs(&prefs)?;
+    let _ = app.emit("term-prefs", prefs);
+    Ok(())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn term_set_title(window: tauri::WebviewWindow, title: String) {
+    let _ = window.set_title(&title);
+}
+
+/// Ferme la fenêtre du terminal appelante (après confirmation dans l'interface).
+#[tauri::command(rename_all = "snake_case")]
+pub fn term_window_close(window: tauri::WebviewWindow, state: State<'_, AppState>) {
+    state.terminals.close_owner(window.label());
+    let _ = window.destroy();
+}
+
+/// Ramène la fenêtre principale au premier plan.
+#[tauri::command(rename_all = "snake_case")]
+pub fn focus_main(app: AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.unminimize();
+        let _ = w.set_focus();
+    }
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn paste_text(app: AppHandle) -> String {
+    use tauri_plugin_clipboard_manager::ClipboardExt;
+    app.clipboard().read_text().unwrap_or_default()
+}
+
+/// Ouvre un lien (cliqué dans le terminal) avec le navigateur par défaut.
+#[tauri::command(rename_all = "snake_case")]
+pub fn open_url(url: String) -> CmdResult<()> {
+    let lower = url.to_ascii_lowercase();
+    if !["http://", "https://", "ftp://", "mailto:"]
+        .iter()
+        .any(|p| lower.starts_with(p))
+    {
+        return Err(CmdError::from(trf!(
+            "Lien non pris en charge : {url}",
+            "Unsupported link: {url}"
+        )));
+    }
+    local::open_with_default(std::path::Path::new(&url));
+    Ok(())
 }
