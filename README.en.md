@@ -14,6 +14,8 @@ which FileZilla does not support.
 - Leptos user interface compiled to WebAssembly, displayed by Tauri 2 (WebKitGTK);
 - types and helpers shared between both (`shared/`).
 
+![RustSCP connected to the test server: local and remote panes, three downloads in progress](docs/images/rustscp.png)
+
 ## Installation
 
 Ready-to-use packages (`.deb`, AppImage, standalone binary) are attached to each
@@ -140,6 +142,8 @@ separate SSH channels over **a single authenticated connection**.
 | Ctrl+Q | Quit |
 
 ## SSH terminal
+
+![Built-in SSH terminal: two tabs, htop with the One Dark theme](docs/images/terminal-ssh.png)
 
 Every SSH site (SCP / SFTP — not FTP) can open a **terminal**: "Terminal" button in
 the Site Manager, toolbar button or **Server → Open SSH terminal** menu

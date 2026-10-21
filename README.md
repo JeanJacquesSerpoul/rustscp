@@ -14,6 +14,8 @@ ce que FileZilla ne gère pas.
 - interface en Leptos compilée en WebAssembly, affichée par Tauri 2 (WebKitGTK) ;
 - types et utilitaires partagés entre les deux (`shared/`).
 
+![RustSCP connecté au serveur de test : panneaux local et distant, trois téléchargements en cours](docs/images/rustscp.png)
+
 ## Installation
 
 Des paquets prêts à l'emploi (`.deb`, AppImage, binaire seul) sont joints à chaque
@@ -140,6 +142,8 @@ parallèles sont des canaux SSH distincts sur **une seule connexion authentifié
 | Ctrl+Q | Quitter |
 
 ## Terminal SSH
+
+![Terminal SSH intégré : deux onglets, htop avec le thème One Dark](docs/images/terminal-ssh.png)
 
 Chaque site SSH (SCP / SFTP — pas FTP) peut ouvrir un **terminal** : bouton
 « Terminal » du gestionnaire de sites, bouton de la barre d'outils ou menu
