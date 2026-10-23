@@ -566,10 +566,11 @@ async fn terminal_roundtrip() {
             format!("pwd; cd {next}; echo OK_$((2+2))\r").into_bytes(),
         );
         cap2.wait_for(&terms, id2, &mut acked, |t| {
-            t.contains(&format!("\n{dir}\r\n")) && t.contains("OK_4")
+            // ligne seule (précédée de \n, ou de \r après la fin du collage encadré)
+            t.split(['\r', '\n']).any(|l| l == dir) && t.contains("OK_4")
         })
         .await;
-        assert!(!cap2.text().contains("6973"), "annonce du PID affichée");
+        assert!(!cap2.text().contains("]6973;"), "annonce du PID affichée");
         terms.close_owner("test");
         let deadline = Instant::now() + Duration::from_secs(10);
         while terms.count(None, None) > 0 {
