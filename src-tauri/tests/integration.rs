@@ -552,17 +552,31 @@ async fn terminal_roundtrip() {
     tokio::time::sleep(Duration::from_millis(50)).await;
     assert_eq!(terms.count(None, None), 0);
 
-    // fermeture par l'interface
-    let cap2 = Arc::new(TermCapture::default());
-    let id2 = terms
-        .open(session.clone(), "test".into(), (80, 24), None, cap2.clone())
-        .await
-        .unwrap();
-    terms.close_owner("test");
-    let deadline = Instant::now() + Duration::from_secs(10);
-    while terms.count(None, None) > 0 {
-        assert!(Instant::now() < deadline, "terminal {id2} non fermé");
-        tokio::time::sleep(Duration::from_millis(20)).await;
+    // sans dossier de départ : celui du terminal précédent ; fermeture par l'interface
+    let mut dir = "/etc";
+    for next in ["/usr/share", ""] {
+        let cap2 = Arc::new(TermCapture::default());
+        let id2 = terms
+            .open(session.clone(), "test".into(), (80, 24), None, cap2.clone())
+            .await
+            .unwrap();
+        let mut acked = 0;
+        terms.write(
+            id2,
+            format!("pwd; cd {next}; echo OK_$((2+2))\r").into_bytes(),
+        );
+        cap2.wait_for(&terms, id2, &mut acked, |t| {
+            t.contains(&format!("\n{dir}\r\n")) && t.contains("OK_4")
+        })
+        .await;
+        assert!(!cap2.text().contains("6973"), "annonce du PID affichée");
+        terms.close_owner("test");
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while terms.count(None, None) > 0 {
+            assert!(Instant::now() < deadline, "terminal {id2} non fermé");
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        dir = next;
     }
     // aucun nouveau code demandé : même connexion authentifiée
     assert_eq!(ui.asked.lock().unwrap().len(), prompts);

@@ -168,6 +168,13 @@ pub fn PaneView(tab: Tab, side: Side) -> impl IntoView {
                     }>
                     {icon("home")}
                 </button>
+                <Show when=move || side == Side::Remote>
+                    <button class="icon-btn" title=tr!("Ouvrir un terminal SSH (dans le dossier du dernier terminal fermé)", "Open SSH terminal (in the folder of the last closed terminal)")
+                        disabled=move || !tab.terminal_ok()
+                        on:click=move |_| act::open_terminal(c, tab, None)>
+                        {icon("terminal")}
+                    </button>
+                </Show>
             </div>
             <div class="tree-wrap" style:height=move || format!("{}px", tree_h.get())>
                 <TreeView tab=tab side=side/>

@@ -1,8 +1,10 @@
 //! Emplacements de configuration et réglages persistants.
 
+use std::collections::HashMap;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use rustscp_shared::i18n::{Lang, resolve, set_lang};
 use rustscp_shared::{Settings, TermPrefs};
@@ -61,6 +63,33 @@ pub fn load_term_prefs() -> TermPrefs {
 
 pub fn save_term_prefs(prefs: &TermPrefs) -> std::io::Result<()> {
     write_json_atomic(&config_dir().join("terminal.json"), prefs)
+}
+
+/// Dernier dossier des terminaux fermés, par serveur (`user@hôte:port`).
+static TERM_DIRS: Mutex<()> = Mutex::new(());
+
+fn term_dirs_path() -> PathBuf {
+    config_dir().join("terminal-dirs.json")
+}
+
+pub fn term_last_dir(key: &str) -> Option<String> {
+    let _guard = TERM_DIRS.lock().unwrap();
+    let mut dirs: HashMap<String, String> = read_json(&term_dirs_path())?;
+    dirs.remove(key)
+}
+
+/// Mémorise (ou oublie, `None` : dossier personnel) le dossier du dernier terminal fermé.
+pub fn set_term_last_dir(key: &str, dir: Option<&str>) {
+    let _guard = TERM_DIRS.lock().unwrap();
+    let path = term_dirs_path();
+    let mut dirs: HashMap<String, String> = read_json(&path).unwrap_or_default();
+    let changed = match dir {
+        Some(d) => dirs.insert(key.to_string(), d.to_string()).as_deref() != Some(d),
+        None => dirs.remove(key).is_some(),
+    };
+    if changed {
+        let _ = write_json_atomic(&path, &dirs);
+    }
 }
 
 /// Locale du système (première variable renseignée parmi LC_ALL, LC_MESSAGES, LANG, LANGUAGE ;

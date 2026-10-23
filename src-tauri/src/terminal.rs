@@ -13,7 +13,11 @@
 //! `HIGH_WATER` octets non acquittés, l'envoi est suspendu (un `cat` d'un gros
 //! fichier ne sature pas l'affichage). Le canal SSH est lu en continu pour ne
 //! jamais bloquer les autres canaux de la connexion (navigation, transferts).
+//!
+//! À la fermeture, le dossier courant du shell est mémorisé par serveur : un
+//! terminal ouvert sans dossier de départ reprend là où le précédent s'est arrêté.
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -26,9 +30,10 @@ use serde::Serialize;
 use tokio::sync::mpsc;
 use tokio::time::Instant;
 
+use crate::config;
 use crate::error::{Error, Result};
 use crate::ssh::{Session, shell_quote};
-use rustscp_shared::{tr, trf};
+use rustscp_shared::{Site, tr, trf};
 
 /// Type de terminal annoncé au serveur (xterm.js est compatible xterm).
 pub const TERM: &str = "xterm-256color";
@@ -43,6 +48,11 @@ const COALESCE: Duration = Duration::from_millis(3);
 
 pub const FRAME_DATA: u8 = 0;
 pub const FRAME_EXIT: u8 = 1;
+
+/// Séquence (retirée du flux) par laquelle le shell annonce son PID au démarrage.
+const PID_MARK: &[u8] = b"\x1b]6973;";
+/// Le PID n'est cherché qu'au début de la session.
+const PID_SCAN_MAX: usize = 64 * 1024;
 
 /// Destination des trames (fenêtre Tauri, passerelle de développement, tests).
 pub trait TermSink: Send + Sync + 'static {
@@ -85,7 +95,8 @@ impl Terminals {
         Arc::new(Terminals::default())
     }
 
-    /// Ouvre un shell interactif ; `cwd` : dossier de départ.
+    /// Ouvre un shell interactif ; `cwd` : dossier de départ (sinon celui du
+    /// dernier terminal fermé sur ce serveur, à défaut le dossier personnel).
     pub async fn open(
         self: &Arc<Self>,
         session: Arc<Session>,
@@ -104,6 +115,10 @@ impl Terminals {
             ));
         }
         let (cols, rows) = (cols.clamp(2, 1000), rows.clamp(1, 1000));
+        let key = dir_key(&session.site());
+        let cwd = cwd
+            .filter(|d| !d.is_empty())
+            .or_else(|| config::term_last_dir(&key));
         let chan = session.open_channel().await?;
         let (read, write) = match start_shell(chan, cols, rows, cwd.as_deref()).await {
             Ok(halves) => halves,
@@ -132,7 +147,8 @@ impl Terminals {
         );
         let this = self.clone();
         tokio::spawn(async move {
-            run(read, write, rx, sink, &session).await;
+            let dir = run(read, write, rx, sink, &session).await;
+            config::set_term_last_dir(&key, dir.or(cwd).as_deref());
             this.map.lock().unwrap().remove(&id);
         });
         Ok(id)
@@ -198,7 +214,13 @@ impl Terminals {
 
 type Halves = (ChannelReadHalf, russh::ChannelWriteHalf<Msg>);
 
-/// Demande le PTY puis le shell (ou `cd dossier; exec $SHELL -l`).
+/// Clé de l'historique des dossiers : le serveur et le compte.
+fn dir_key(site: &Site) -> String {
+    format!("{}@{}:{}", site.user, site.host, site.port)
+}
+
+/// Demande le PTY puis le shell : `[cd dossier;] exec $SHELL -l` précédé de
+/// l'annonce du PID (`exec` le conserve) ; shell simple si le serveur refuse.
 async fn start_shell(
     chan: Channel<Msg>,
     cols: u32,
@@ -234,14 +256,21 @@ async fn start_shell(
         .filter(|l| l.to_ascii_uppercase().replace('-', "").contains("UTF8"))
         .unwrap_or_else(|| "C.UTF-8".into());
     let _ = write.set_env(false, "LANG", lang).await;
-    match cwd.filter(|d| !d.is_empty()) {
-        Some(dir) => {
-            let cmd = format!("cd {} 2>/dev/null; exec \"$SHELL\" -l", shell_quote(dir));
-            write.exec(true, cmd).await?;
-        }
-        None => write.request_shell(true).await?,
+    let mut script = String::from("printf '\\033]6973;%s\\007' \"$$\"; ");
+    if let Some(dir) = cwd.filter(|d| !d.is_empty()) {
+        script += &format!("cd {} 2>/dev/null; ", shell_quote(dir));
     }
-    if !reply(&mut read).await? {
+    script += "exec \"$SHELL\" -l";
+    // via sh : la syntaxe du shell de connexion (fish, csh…) importe peu
+    write
+        .exec(true, format!("exec /bin/sh -c {}", shell_quote(&script)))
+        .await?;
+    let mut ok = reply(&mut read).await?;
+    if !ok {
+        write.request_shell(true).await?;
+        ok = reply(&mut read).await?;
+    }
+    if !ok {
         return Err(Error::Remote(
             tr!(
                 "le serveur n'autorise pas l'ouverture d'un shell (accès SFTP uniquement ?)",
@@ -276,6 +305,91 @@ async fn reply(read: &mut ChannelReadHalf) -> Result<bool> {
         })?
 }
 
+/// Dossier courant du shell : PID annoncé au démarrage, à défaut séquences OSC 7.
+#[derive(Default)]
+struct CwdTrack {
+    pid: Option<u32>,
+    scanned: usize,
+    osc7: Option<String>,
+}
+
+impl CwdTrack {
+    /// Relève PID et dossier dans la sortie ; retire l'annonce du PID.
+    fn scan<'a>(&mut self, data: &'a [u8]) -> Cow<'a, [u8]> {
+        let mut data = Cow::Borrowed(data);
+        if self.pid.is_none() && self.scanned < PID_SCAN_MAX {
+            self.scanned += data.len();
+            if let Some(start) = find(&data, PID_MARK) {
+                let rest = &data[start + PID_MARK.len()..];
+                if let Some(end) = rest.iter().position(|&b| b == 0x07) {
+                    self.pid = std::str::from_utf8(&rest[..end])
+                        .ok()
+                        .and_then(|p| p.parse().ok());
+                    let stop = start + PID_MARK.len() + end + 1;
+                    let mut v = data[..start].to_vec();
+                    v.extend_from_slice(&data[stop..]);
+                    data = Cow::Owned(v);
+                }
+            }
+        }
+        // ESC ] 7 ; file://hôte/chemin (terminé par BEL ou ESC \)
+        let mut at = 0;
+        while let Some(i) = find(&data[at..], b"\x1b]7;") {
+            let rest = &data[at + i + 4..];
+            let end = rest
+                .iter()
+                .position(|&b| b == 0x07 || b == 0x1b)
+                .unwrap_or(rest.len());
+            if let Some(dir) = osc7_path(&rest[..end]) {
+                self.osc7 = Some(dir);
+            }
+            at += i + 4;
+        }
+        data
+    }
+}
+
+fn find(hay: &[u8], needle: &[u8]) -> Option<usize> {
+    hay.windows(needle.len()).position(|w| w == needle)
+}
+
+/// `file://hôte/chemin%20encodé` → `/chemin encodé`.
+fn osc7_path(uri: &[u8]) -> Option<String> {
+    let rest = uri.strip_prefix(b"file://")?;
+    let path = &rest[rest.iter().position(|&b| b == b'/')?..];
+    let mut out = Vec::with_capacity(path.len());
+    let mut i = 0;
+    while i < path.len() {
+        let hex = path
+            .get(i + 1..i + 3)
+            .and_then(|h| std::str::from_utf8(h).ok())
+            .and_then(|h| u8::from_str_radix(h, 16).ok());
+        match (path[i], hex) {
+            (b'%', Some(b)) => {
+                out.push(b);
+                i += 3;
+            }
+            (b, _) => {
+                out.push(b);
+                i += 1;
+            }
+        }
+    }
+    String::from_utf8(out).ok()
+}
+
+/// Dossier courant du processus `pid` (Linux : /proc, sinon lsof).
+async fn shell_cwd(session: &Session, pid: u32) -> Option<String> {
+    let conn = session.current().filter(|c| !c.is_closed())?;
+    let script = format!(
+        "readlink /proc/{pid}/cwd 2>/dev/null || lsof -a -p {pid} -d cwd -Fn 2>/dev/null | sed -n 's/^n//p'"
+    );
+    let cmd = format!("sh -c {}", shell_quote(&script));
+    let (_, out, _) = conn.exec(&cmd, Duration::from_secs(3)).await.ok()?;
+    let dir = String::from_utf8(out).ok()?.lines().next()?.to_string();
+    dir.starts_with('/').then_some(dir)
+}
+
 fn frame(tag: u8, data: &[u8]) -> Vec<u8> {
     let mut f = Vec::with_capacity(data.len() + 1);
     f.push(tag);
@@ -283,13 +397,16 @@ fn frame(tag: u8, data: &[u8]) -> Vec<u8> {
     f
 }
 
+/// Relaie la session ; retourne le dernier dossier courant connu du shell.
 async fn run(
     mut read: ChannelReadHalf,
     write: russh::ChannelWriteHalf<Msg>,
     mut rx: mpsc::UnboundedReceiver<Cmd>,
     sink: Arc<dyn TermSink>,
     session: &Session,
-) {
+) -> Option<String> {
+    let mut track = CwdTrack::default();
+    let mut cwd = None;
     let mut out = BytesMut::new();
     let mut unacked = 0usize;
     let mut deadline: Option<Instant> = None;
@@ -313,6 +430,10 @@ async fn run(
                 Some(Cmd::Ack(n)) => unacked = unacked.saturating_sub(n),
                 Some(Cmd::Close(reason)) => {
                     closed = Some(reason);
+                    // le shell vit encore : son dossier courant
+                    if let Some(pid) = track.pid {
+                        cwd = shell_cwd(session, pid).await;
+                    }
                     let _ = write.close().await;
                     break;
                 }
@@ -336,7 +457,7 @@ async fn run(
                 continue;
             },
             msg = read.wait(), if out.len() < BUFFER_MAX => match msg {
-                Some(ChannelMsg::Data { data }) => out.extend_from_slice(&data),
+                Some(ChannelMsg::Data { data }) => out.extend_from_slice(&track.scan(&data)),
                 Some(ChannelMsg::ExtendedData { data, .. }) => out.extend_from_slice(&data),
                 Some(ChannelMsg::ExitStatus { exit_status }) => code = Some(exit_status as i32),
                 Some(ChannelMsg::ExitSignal { signal_name, .. }) => {
@@ -350,14 +471,15 @@ async fn run(
             deadline = Some(Instant::now() + COALESCE);
         }
     }
+    let cwd = cwd.or(track.osc7);
     if !alive {
-        return;
+        return cwd;
     }
     // fin : tout ce qui reste, puis le motif
     while !out.is_empty() {
         let chunk = out.split_to(out.len().min(FRAME_MAX));
         if !sink.send(frame(FRAME_DATA, &chunk)) {
-            return;
+            return cwd;
         }
     }
     let lost = closed.is_none() && code.is_none() && signal.is_none() && !session.is_connected();
@@ -390,4 +512,30 @@ async fn run(
             exit.message
         ),
     );
+    cwd
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pid_mark_removed() {
+        let mut t = CwdTrack::default();
+        let out = t.scan(b"motd\x1b]6973;4242\x07$ ");
+        assert_eq!(t.pid, Some(4242));
+        assert_eq!(&*out, b"motd$ ");
+        // annonce suivante ignorée : seul le shell de départ compte
+        assert_eq!(&*t.scan(b"\x1b]6973;1\x07"), b"\x1b]6973;1\x07");
+        assert_eq!(t.pid, Some(4242));
+    }
+
+    #[test]
+    fn osc7() {
+        let mut t = CwdTrack::default();
+        t.scan(b"\x1b]7;file://srv/home/jjs\x07x\x1b]7;file://srv/tmp/a%20b\x1b\\$ ");
+        assert_eq!(t.osc7.as_deref(), Some("/tmp/a b"));
+        assert_eq!(osc7_path(b"file:///var/log").as_deref(), Some("/var/log"));
+        assert_eq!(osc7_path(b"http://x/y"), None);
+    }
 }

@@ -146,9 +146,13 @@ separate SSH channels over **a single authenticated connection**.
 ![Built-in SSH terminal: two tabs, htop with the One Dark theme](docs/images/terminal-ssh.png)
 
 Every SSH site (SCP / SFTP — not FTP) can open a **terminal**: "Terminal" button in
-the Site Manager, toolbar button or **Server → Open SSH terminal** menu
+the Site Manager, toolbar or remote pane button, **Server → Open SSH terminal** menu
 (Ctrl+Shift+T), and **Open terminal here** in the remote pane menu (starts in the
 displayed or selected folder).
+
+- **Folder resume**: without a specific folder, the terminal opens in the current
+  folder of the last terminal closed on that server (read when it closes), otherwise
+  in the home folder (`terminal-dirs.json`).
 
 - **No new TOTP code**: the terminal is one more channel on the already
   authenticated connection (like transfers); if it dropped, it is re-established.

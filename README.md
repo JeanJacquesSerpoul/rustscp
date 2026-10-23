@@ -146,9 +146,14 @@ parallèles sont des canaux SSH distincts sur **une seule connexion authentifié
 ![Terminal SSH intégré : deux onglets, htop avec le thème One Dark](docs/images/terminal-ssh.png)
 
 Chaque site SSH (SCP / SFTP — pas FTP) peut ouvrir un **terminal** : bouton
-« Terminal » du gestionnaire de sites, bouton de la barre d'outils ou menu
-**Serveur → Ouvrir un terminal SSH** (Ctrl+Maj+T), et **Ouvrir un terminal ici** dans
-le menu du panneau distant (démarre dans le dossier affiché ou sélectionné).
+« Terminal » du gestionnaire de sites, bouton de la barre d'outils ou du panneau
+distant, menu **Serveur → Ouvrir un terminal SSH** (Ctrl+Maj+T), et **Ouvrir un
+terminal ici** dans le menu du panneau distant (démarre dans le dossier affiché ou
+sélectionné).
+
+- **Reprise du dossier** : sans dossier précis, le terminal s'ouvre dans le dossier
+  courant du dernier terminal fermé sur ce serveur (relevé à la fermeture), sinon
+  dans le dossier personnel (`terminal-dirs.json`).
 
 - **Aucun nouveau code TOTP** : le terminal est un canal de plus sur la connexion
   déjà authentifiée (comme les transferts) ; si elle est tombée, elle est rétablie.
